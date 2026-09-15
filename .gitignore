@@ -1,0 +1,11 @@
+# build outputs
+native/bin/
+native/obj/
+# test artefacts
+tests/_output/
+# MATLAB
+*.asv
+*.mex*
+slprj/
+# machine-specific settings (spincam.setup)
+spincam_config.json
