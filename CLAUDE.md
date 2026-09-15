@@ -1,7 +1,8 @@
 # CLAUDE.md — working on `spincam`
 
 Guidance for AI agents and humans modifying this repository. `AGENT.md` is a symlink to
-this file. User-facing documentation lives in `README.md`.
+this file. User-facing documentation lives in `README.md`; developer background (architecture,
+measurements, validation records, test suites) lives in `docs/`.
 
 ## 1. Hard rules
 
@@ -19,6 +20,8 @@ this file. User-facing documentation lives in `README.md`.
   (`spincam.internal.SpinnakerSystem` does this with ref-counting). Leaked handles hang
   MATLAB at exit.
 * Keep `README.md` in sync with public API changes (signatures, defaults, CSV columns).
+  Keep it user-facing: benchmarks and validation runs go in `docs/performance.md`, test suites
+  and counts in `docs/development.md`, backend internals in `docs/architecture.md`.
 
 ## 2. Environment idiosyncrasies (WSL ↔ Windows)
 
@@ -70,13 +73,14 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
 | Exposure/gain | `ExposureTime` µs (writable when `ExposureAuto=Off`), `Gain` dB (writable when `GainAuto=Off`), `BlackLevel` % writable, `Gamma`/`GammaEnabled` **unavailable**, `Sharpness` read-only |
 | Trigger | `TriggerSelector` {FrameStart, ExposureActive}; `TriggerSource` {Software, Line0, Line2, Line3}; `TriggerActivation` {RisingEdge, FallingEdge}; `TriggerOverlap` unavailable while `TriggerMode=Off`; `ExposureMode` {Timed, TriggerWidth} |
 | Lines | Line0 `LineMode` {Input}; Line1 {Output}, `LineSource` {ExposureActive, ExternalTriggerActive, UserOutput1}, `StrobeDuration`/`StrobeDelay` µs [0..65535], `LineInverter`; Line2/3 {Input, Output}; `LineStatusAll` bit k = Line k (idle reads 8 or 12: Line2/3 pulled high) |
+| Opto input electrical (Line0) | *Chameleon3 USB3 Technical Reference* v5.0 §6.7 (not measured): operating 0–30 V, abs max −70/+40 V, over-current protected, specs valid when powered over USB. Circuit (Fig. 6.2): OPTO_IN → series diode → FET current limiter → optocoupler LED → OPTO_GND. **No logic threshold published.** 5 V TTL (Bpod BNC) is the supported level; 3.3 V is in range but not guaranteed and untested on the rig. Pinout colours in Fig. 6.2 confirm yellow = pin 9 OPTO_IN, brown = pin 7 OPTO_GND |
 | Chunks | `ChunkSelector` has FrameCounter, Timestamp, ExposureTime, Gain, … but **no line status chunk** |
 | Events | `EventSelector` {ExposureEnd} only (no line events) |
 | Stream nodemap | `StreamBufferHandlingMode` default OldestFirst, `StreamBufferCountManual` 10 |
 | Image | `IManagedImage.TimeStamp` ns (device clock), `FrameID` stream-relative from 0, `DataPtr` is `IntPtr`, `ChunkData` throws when chunks are off |
 | IIDC registers | `cam.ReadPort(uint64 addr, System.Byte[] buf, uint64 len)`; base **`0xFFFFF0F00000`**; values **little-endian** (SERIAL `0x1F20` reads the serial) |
 | FRAME_INFO `0x12F8` | default `0x87FF0000`. IIDC bit numbering is MSB-first (bit n ↔ `2^(31-n)`). Inquiry bits 6..15 ↔ enable bits 22..31. Enabled fields are packed in the order Timestamp(31), Gain(30), Shutter(29), Brightness(28), Exposure(27), WB(26), FrameCounter(25), StrobePattern(24), GPIO(23), ROI(22), 4 bytes each, **big-endian** in the image. GPIO state: Line k ↔ bit (31−k). Writing `0x87FF0140` gives frame counter at bytes 0–3 and GPIO at bytes 4–7 (verified). |
-| GPIO_CTRL `0x1100` | `0x80040008`: 4 pins; Value_k at bit (31−k) |
+| GPIO_CTRL `0x1100` | `0x8004000X`: 4 pins; Value_k at bit (31−k), so the low nibble follows the live pin states (`0x80040008` on 24226887, `0x8004000C` on 24226657, matching `LineStatusAll` 8 / 12) |
 | Strobe pattern | `GPIO_STRPAT_CTRL 0x110C` = `0x80000100` (Count_Period bits 19–23, value 1..16; Current_Count bits 28–31); `GPIO_STRPAT_MASK_PIN_{0..3}` `0x1118/0x1128/0x1138/0x1148` = `0x8000FFFF` (Enable_Mask bits 16–31; IIDC bit 16+c ↔ count c ↔ value `2^(15-c)`) |
 | Timing | MATLAB `uint8(img.ManagedData)` ≈ 0.74 ms per frame; `LineStatusAll` read ≈ 0.67 ms; `GetNextImage` returns at camera rate |
 | Trigger defaults | `TriggerActivation` factory state on both cameras is **FallingEdge**; tests must snapshot and restore trigger nodes |
@@ -98,7 +102,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
 
 ## 4. Architecture decisions
 
-1. **Backend = Spinnaker .NET + C# engine** (see README §1). MATLAB does control-plane
+1. **Backend = Spinnaker .NET + C# engine** (see `docs/architecture.md`). MATLAB does control-plane
    work only (settings, sync, UI, file naming). The per-frame data plane lives in
    `native/src` (grab → decode → queue → encode/log) on background threads. Reasons:
    MATLAB is single-threaded, Bpod's `RunStateMachine` blocks it, and per-frame .NET→MATLAB
@@ -172,7 +176,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     (`NativeEngine.VerifiedSpinnakerVersion`); update it after a hardware run on another version.
 14. **Viewer sync fields follow `SyncController.optionsFor(mode, ttlSource)`**. Adding a sync
     option means: property on `SyncController`, entry in `optionsFor`, a field in
-    `LiveViewer.buildSyncTab`, a row in README §6's field reference. Pending (unapplied)
+    `LiveViewer.buildSyncTab`, a row in README §5's field reference. Pending (unapplied)
     sync edits are applied automatically on Preview/Record.
 
 ## 5. Layout
@@ -188,6 +192,7 @@ native/src/*.cs           C# engine sources (namespace SpinCam)
 native/bin/               build output SpinCamEngine.dll + SpinCamEngine.build.json (generated)
 spincam_config.json       machine-specific Spinnaker folder written by spincam.setup (git-ignored)
 examples/                 headless, mock, Bpod examples
+docs/                     developer docs: architecture.md, performance.md, development.md
 tests/unit|integration|hardware   matlab.unittest classes; runTests.m at root
 ```
 
@@ -232,7 +237,8 @@ tests/unit|integration|hardware   matlab.unittest classes; runTests.m at root
    Never write to `spincam_config.json` from tests: pass `'ConfigPath'` to `SpinnakerLocator`.
 3. Run tests: `matlab -batch "runTests"`. With cameras attached (and SpinView closed):
    `matlab -batch "runTests('hardware')"`.
-4. Update `README.md` (API tables, CSV schema) and §3 of this file if new facts were verified.
+4. Update `README.md` (API tables, CSV schema), `docs/` (measurements, test counts) and §3 of
+   this file if new facts were verified.
 
 ## 8. Testing guidelines
 

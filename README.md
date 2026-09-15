@@ -22,106 +22,97 @@ provides:
   `spincam.setup`; the engine is compiled against the installed assemblies,
 * a **live viewer UI** (`spincam.LiveViewer`) with side-by-side preview, per-frame TTL
   indicators, camera property and crop controls, sync configuration and a record button,
-* a **mock backend** so all logic (including the native acquisition engine) is
-  testable without cameras attached.
+* a **mock backend** to try the API and the viewer without cameras attached.
 
 ---
 
 ## Contents
 
-1. [Architecture and backend choice](#1-architecture-and-backend-choice)
-2. [Dependency audit](#2-dependency-audit)
+1. [Requirements](#1-requirements)
+2. [Installation](#2-installation)
 3. [Hardware: GPIO pinout and wiring](#3-hardware-gpio-pinout-and-wiring)
-4. [Installation](#4-installation)
-5. [Quick start](#5-quick-start)
-6. [Synchronization modes](#6-synchronization-modes)
+4. [Quick start](#4-quick-start)
+5. [Synchronization modes](#5-synchronization-modes)
+6. [Bpod integration](#6-bpod-integration)
 7. [Output files and CSV schema](#7-output-files-and-csv-schema)
 8. [API reference](#8-api-reference)
-9. [Bpod integration](#9-bpod-integration)
-10. [Performance notes and limits](#10-performance-notes-and-limits)
-11. [Testing](#11-testing)
-12. [Troubleshooting](#12-troubleshooting)
+9. [Performance and limits](#9-performance-and-limits)
+10. [Troubleshooting](#10-troubleshooting)
+11. [Developer documentation](#11-developer-documentation)
 
 ---
 
-## 1. Architecture and backend choice
+## 1. Requirements
 
-### Options evaluated
+| Item | Needed? |
+|---|---|
+| Windows 10/11, 64-bit | **Required** |
+| MATLAB R2023b or newer | **Required** (developed on R2025b). No toolboxes: the Image Acquisition Toolbox and the GenICam / Point Grey support packages are **not** used |
+| .NET Framework 4.8 | **Required**; part of Windows 10/11 |
+| Spinnaker SDK or SpinView **with its .NET components** | **Required**, in any folder (§2). Verified with 4.2.0.83. Its SpinVideo component is needed only for the `avi-mjpeg`, `avi-raw` and `mp4-h264` formats |
+| C# compiler `csc.exe` (.NET Framework 4.x) | Ships with Windows; `spincam.setup` uses it once to build the acquisition engine |
+| FLIR / Point Grey USB3 Vision cameras | Developed on 2 × Chameleon3 CM3-U3-13Y3M. Per-frame embedded TTL needs the camera's FRAME_INFO register; otherwise use `TtlSource = 'polled'` (§5) |
+| FlyCapture2 | Not used. It can stay installed, but do not switch the cameras to its driver |
 
-| Backend | Verdict | Reason |
-|---|---|---|
-| **Spinnaker 4.2 via its .NET assembly (`SpinnakerNET_v140.dll`)** + a small C# acquisition engine | **Chosen** | Installed and working with these cameras (the cameras are bound to the Spinnaker "FLIR USB3 Vision Camera" driver). MATLAB loads .NET Framework 4.8 assemblies natively. Grabbing, GPIO line status and IIDC register access (needed for per-frame embedded TTL state) were all verified from MATLAB. A compiled C# engine runs grabbing, TTL decoding, CSV logging and video encoding on background threads, so acquisition keeps running while MATLAB is busy (e.g. inside Bpod's blocking `RunStateMachine`). |
-| Spinnaker C/C++ API through MEX | Rejected | The installed Spinnaker package is the runtime/SpinView install: there are no headers or import libraries, and no C++ compiler is configured for MATLAB. It offers no latency advantage over the .NET path for this workload. |
-| FlyCapture2 SDK 2.13 | Rejected | End-of-life SDK. It needs the legacy PGR USB driver, while the cameras are currently bound to the Spinnaker driver. It has no GenICam node map and no future support. |
-| Image Acquisition Toolbox (`gentl` / `pointgrey` adaptors) | Rejected | Not installed (licensed but absent). The `pointgrey` adaptor depends on FlyCapture2. `gentl` exposes neither per-frame GPIO state nor register access. Frame delivery runs in MATLAB's thread, which a blocking Bpod protocol would starve. |
-
-### Layering
-
-```
- ┌───────────────────────── MATLAB (single thread) ─────────────────────────┐
- │  Bpod protocol / scripts            spincam.LiveViewer (uifigure + timer) │
- │            │                                   │                          │
- │            ▼                                   ▼                          │
- │  spincam.CameraManager ──► spincam.SyncController   spincam.VideoRecorder │
- │            │                     │ (node + register writes)   │           │
- │            ▼                     ▼                            │           │
- │  spincam.CameraDevice ── NodeMapAdapter / RegisterPort        │           │
- │   (property control)     (Spinnaker or Mock implementation)   │           │
- └────────────┬──────────────────────────────────────────────────┼───────────┘
-              │ .NET interop (control only; no per-frame MATLAB work)
- ┌────────────▼────────────── SpinCamEngine.dll (C# 5, .NET 4.8) ─▼──────────┐
- │  CameraStream (one per camera)                                            │
- │    grab thread ──► TTL decode, drop detection ──► bounded queue           │
- │    writer thread ──► SpinVideo AVI/MP4 | raw | MATLAB queue ──► CSV log   │
- │    optional TTL poll thread (LineStatusAll)                               │
- │  IFrameSource: SpinnakerFrameSource | SyntheticFrameSource (mock/tests)   │
- └────────────┬──────────────────────────────────────────────────────────────┘
-              ▼
-   SpinnakerNET_v*.dll / SpinVideoNET_v*.dll (installed Spinnaker; verified 4.2.0.83) ─► USB3
-```
-
-### How per-frame TTL state is captured
-
-The Chameleon3 **FRAME_INFO register (IIDC `0x12F8`)** can embed image-specific data into
-the first pixels of every frame. The camera latches the values *at the end of exposure*.
-`spincam` enables two embedded fields:
-
-* bytes 0–3: camera frame counter (big-endian), used as a second drop detector
-* bytes 4–7: GPIO pin state (big-endian); **Line *k* ↔ bit (31 − k)**, so Line0 is the MSB
-
-This gives a TTL state **latched by the camera's own hardware** for every frame, with no
-host polling latency. The 8 overwritten pixels are restored cosmetically in the saved
-video by copying the pixels from row 1 (`ScrubEmbeddedPixels`, on by default).
-
-Verified on 2026-09-15: register base `0xFFFFF0F00000`, register values are little-endian
-through `ReadPort`/`WritePort`, the embedded frame counter increments by 1 per frame, and
-the embedded GPIO bits match `LineStatusAll` on both cameras.
-
-A **polled** fallback (`TtlSource = 'polled'`) samples the `LineStatusAll` node on a
-background thread. Each read takes about 0.7 ms (measured). The state is sampled on the
-host rather than latched per exposure.
+No `PATH` changes are needed: `spincam` locates the Spinnaker assemblies itself. The audit of
+the development workstation is in [docs/development.md](docs/development.md#workstation-dependency-audit).
 
 ---
 
-## 2. Dependency audit
+## 2. Installation
 
-Audit performed 2026-09-15 on this workstation.
+1. Put the `SpinCam` folder anywhere (this workstation:
+   `C:\Users\harrislab\Documents\MATLAB\SpinCam`). Nothing in spincam depends on its location.
+2. Install the **Spinnaker SDK** (or SpinView) **with its .NET components**, in any folder.
+3. In MATLAB:
 
-| Item | Status | Needed? |
+   ```matlab
+   cd('C:\Users\harrislab\Documents\MATLAB\SpinCam')   % wherever you put it
+   spincam.setup('SavePath', true)   % adds spincam to the path, finds Spinnaker, builds the engine
+   ```
+
+   If Spinnaker is not in a standard location, tell setup where it is (once; it is remembered):
+
+   ```matlab
+   spincam.setup('SpinnakerDir', 'D:\Programs\Teledyne\Spinnaker')   % root, bin64 or bin64\vs2015
+   spincam.setup('BrowseSpinnaker', true)                              % choose the folder in a dialog
+   ```
+
+   Run interactively, setup also opens that dialog by itself when it cannot find Spinnaker.
+4. Close **SpinView** before acquiring. A camera can only be streamed by one process at a
+   time.
+5. Make sure the data drive exists (default data root `D:\videoData`; change it in the
+   viewer or with `cm.DataRoot`). Sub-folders are created when recording starts.
+6. Optional: `runTests()` checks the installation without cameras, and `runTests('hardware')`
+   with cameras attached and SpinView closed ([docs/development.md](docs/development.md#tests)).
+
+`spincam.setup` prints a checklist: spincam folder, MATLAB, .NET, where Spinnaker was found and
+how, whether SpinVideo is available, compiler, engine build, Spinnaker version and cameras.
+Because .NET assemblies cannot be unloaded, **restart MATLAB after the engine was rebuilt**.
+
+### Where spincam looks for Spinnaker
+
+| Order | Source | Set by |
 |---|---|---|
-| MATLAB R2025b (25.2), win64 | Installed | **Required** (R2023b+ should work; developed on R2025b) |
-| .NET Framework 4.8 (`NET.isNETSupported`, `dotnetenv` → framework 4.8.9345) | Present | **Required** |
-| Spinnaker SDK / SpinView 4.2.0.83 (`C:\Program Files\Teledyne\Spinnaker\bin64\vs2015`) | Installed; on system `PATH` | **Required**: Spinnaker with its .NET API, any folder or version (§4). Here: `SpinnakerNET_v140.dll`, `SpinVideoNET_v140.dll` (SpinVideo is optional) |
-| C# compiler `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` (C# 5) | Present (ships with Windows) | **Required** to build `SpinCamEngine.dll` once |
-| `GENICAM_GENTL64_PATH` → Spinnaker `cti64\vs2015` | Set | Not used by spincam |
-| Image Acquisition Toolbox | Licensed, **not installed** | **Not required** |
-| MATLAB Support Package for GenICam / Point Grey | Not installed | **Not required** |
-| Image Processing Toolbox, Parallel Computing Toolbox | Licensed, not installed | **Not required** |
-| FlyCapture2 2.13.3.61 | Installed | **Not used** (can stay installed; do not rebind the cameras to its driver) |
+| 1 | Environment variable `SPINCAM_SPINNAKER_BIN` | Windows, or `setenv` before first use |
+| 2 | `SpinnakerDir` in `spincam_config.json` in the spincam folder (machine-specific, not versioned) | `spincam.setup('SpinnakerDir', …)` / `'BrowseSpinnaker'` |
+| 3 | `<Program Files>\Teledyne\Spinnaker`, `\FLIR Systems\Spinnaker`, `\Point Grey Research\Spinnaker` | Spinnaker installer |
 
-**Nothing needs to be installed** on this workstation, and no `PATH` changes are needed:
-`spincam` locates the Spinnaker assemblies itself. §4 covers other install folders and
-Spinnaker versions.
+Each may point to the Spinnaker root, its `bin64` folder, or the folder holding
+`SpinnakerNET_v<toolset>.dll`; the highest toolset found below it is used. A configured folder
+(1 or 2) that contains no assemblies is reported by `spincam.setup` and skipped.
+
+### Other Spinnaker versions
+
+* The acquisition engine is **compiled on your machine against the installed** Spinnaker
+  assemblies. After a Spinnaker update, or when spincam is pointed at another folder, it is
+  rebuilt automatically the next time it loads; restart MATLAB afterwards.
+* Without `SpinVideoNET` the engine is built without SpinVideo: `raw`, `matlab-avi`,
+  `matlab-mjpeg` and `none` still work, while `avi-mjpeg`, `avi-raw` and `mp4-h264` raise
+  `spincam:recorder:noSpinVideo`.
+* **Verified with Spinnaker 4.2.0.83 only.** `spincam.setup` notes when another version is
+  installed. If the engine build fails, the compiler message names the missing .NET member
+  (§10). After installing another version, run `spincam.setup` and `runTests('hardware')` once.
 
 ---
 
@@ -158,10 +149,19 @@ Line capabilities reported by the camera (`LineMode` entries):
 | Line2 | ✔ | ✔ | ✔ | determined at runtime |
 | Line3 | ✔ | ✔ | ✔ | determined at runtime |
 
-Electrical limits (Technical Reference, Tables 6.2 and 6.3; operating range):
+Electrical limits (Technical Reference v5.0, §6.7, Tables 6.2 and 6.3; operating range).
+FLIR gives the opto-isolated limits for a camera powered over USB, not through VEXT:
 
-* Opto-isolated **input**: 0–30 V (absolute max −70 V / +40 V). 5 V TTL (for example a
-  Bpod BNC output) is within range.
+* Opto-isolated **input** (Line0): 0–30 V (absolute max −70 V / +40 V), with over-current
+  protection. The input is not a logic gate: OPTO_IN drives a series diode and a FET current
+  limiter into an optocoupler LED that returns on OPTO_GND (Figure 6.2). FLIR publishes
+  **no input-low/high threshold**.
+  * **5 V TTL: use this.** Bpod BNC outputs (0 V / 5 V) connect directly, without a resistor.
+  * **3.3 V logic: not guaranteed.** It lies inside the rated range, but the diode, limiter
+    and LED consume part of it, and there is no published threshold. It has not been tested
+    on this rig. Level-shift to 5 V (e.g. a 74HCT/74AHCT buffer powered from 5 V) or confirm
+    with `spincam.tools.verifyTtlInput` before relying on it.
+  * Higher signals (e.g. 12 V or 24 V) are within range.
 * Opto-isolated **output**: 0–24 V, ≤ 25 mA, **open collector, so it needs a pull-up
   resistor**. For example, 1 kΩ from OPTO_OUT to an external +5 V, with the external
   ground on OPTO_GND.
@@ -176,8 +176,8 @@ Electrical limits (Technical Reference, Tables 6.2 and 6.3; operating range):
 
 | Mode | Wires | Configuration |
 |---|---|---|
-| A: passive TTL logging | Yellow (Line0) = signal, Brown = OPTO_GND | `configureSync('passive')` (default) |
-| B: hardware trigger | Yellow (Line0) = trigger, Brown = OPTO_GND | `configureSync('triggered')` |
+| A: passive TTL logging | Yellow (Line0) = signal (5 V TTL; 3.3 V not guaranteed), Brown = OPTO_GND | `configureSync('passive')` (default) |
+| B: hardware trigger | Yellow (Line0) = trigger (5 V TTL; 3.3 V not guaranteed), Brown = OPTO_GND | `configureSync('triggered')` |
 | C: strobe out (isolated) | Orange (Line1) = output + pull-up, Brown = OPTO_GND | `configureSync('strobe','StrobeLine','Line1')` |
 | C: strobe out (non-isolated) | Purple (Line2) = output, Black = GND | `configureSync('strobe','StrobeLine','Line2')` |
 
@@ -185,66 +185,7 @@ Mode C can run alongside TTL logging on Line0: the yellow/brown input stays acti
 
 ---
 
-## 4. Installation
-
-1. Put the `SpinCam` folder anywhere (this workstation:
-   `C:\Users\harrislab\Documents\MATLAB\SpinCam`). Nothing in spincam depends on its location.
-2. Install the **Spinnaker SDK** (or SpinView) **with its .NET components**, in any folder.
-3. In MATLAB:
-
-   ```matlab
-   cd('C:\Users\harrislab\Documents\MATLAB\SpinCam')   % wherever you put it
-   spincam.setup('SavePath', true)   % adds spincam to the path, finds Spinnaker, builds the engine
-   ```
-
-   If Spinnaker is not in a standard location, tell setup where it is (once; it is remembered):
-
-   ```matlab
-   spincam.setup('SpinnakerDir', 'D:\Programs\Teledyne\Spinnaker')   % root, bin64 or bin64\vs2015
-   spincam.setup('BrowseSpinnaker', true)                              % choose the folder in a dialog
-   ```
-
-   Run interactively, setup also opens that dialog by itself when it cannot find Spinnaker.
-4. Close **SpinView** before acquiring. A camera can only be streamed by one process at a
-   time.
-5. Make sure the data drive exists (default data root `D:\videoData`; change it in the
-   viewer or with `cm.DataRoot`). Sub-folders are created when recording starts.
-
-`spincam.setup` prints a checklist: spincam folder, MATLAB, .NET, where Spinnaker was found and
-how, whether SpinVideo is available, compiler, engine build, Spinnaker version and cameras.
-Because .NET assemblies cannot be unloaded, **restart MATLAB after the engine was rebuilt**.
-
-### Where spincam looks for Spinnaker
-
-| Order | Source | Set by |
-|---|---|---|
-| 1 | Environment variable `SPINCAM_SPINNAKER_BIN` | Windows, or `setenv` before first use |
-| 2 | `SpinnakerDir` in `spincam_config.json` in the spincam folder (machine-specific, not versioned) | `spincam.setup('SpinnakerDir', …)` / `'BrowseSpinnaker'` |
-| 3 | `<Program Files>\Teledyne\Spinnaker`, `\FLIR Systems\Spinnaker`, `\Point Grey Research\Spinnaker` | Spinnaker installer |
-
-Each may point to the Spinnaker root, its `bin64` folder, or the folder holding
-`SpinnakerNET_v<toolset>.dll`; the highest toolset found below it is used. A configured folder
-(1 or 2) that contains no assemblies is reported by `spincam.setup` and skipped.
-
-### Other Spinnaker versions
-
-* The engine is **compiled on your machine against the installed** `SpinnakerNET` and
-  `SpinVideoNET` assemblies. `native\bin\SpinCamEngine.build.json` records which files it was
-  built against; after a Spinnaker update (or a different folder) the engine is rebuilt
-  automatically on the next load.
-* SpinVideo option members (types differ between releases) are set by name at run time.
-* Without `SpinVideoNET` the engine is built without SpinVideo: `raw`, `matlab-avi`,
-  `matlab-mjpeg` and `none` still work, while `avi-mjpeg`, `avi-raw` and `mp4-h264` raise
-  `spincam:recorder:noSpinVideo`.
-* **Verified with Spinnaker 4.2.0.83 only.** `spincam.setup` notes when another version is
-  installed. Other releases are expected to work if their .NET API still provides what spincam
-  uses (camera list and node maps, `GetNextImage`, `ReadPort`/`WritePort`, `ManagedImage`,
-  `ManagedSpinVideo`); if the engine build fails, the compiler message names the missing member.
-  After installing another version, run `spincam.setup` and `runTests('hardware')` once.
-
----
-
-## 5. Quick start
+## 4. Quick start
 
 ### GUI
 
@@ -263,7 +204,7 @@ The viewer connects all attached cameras, sets them to **100 fps**, names them `
 | **Statistics table** | Per camera: fps, frames received / missed / written, writer drops, writer queue, last TTL state. |
 | **Recording** tab | Cameras to connect and their names; where to save; format; a preview of the exact folder and file names. See the table below. |
 | **Camera** tab | Frame rate, exposure, gain, black level, gamma: slider, number and *Auto* check-box. *Apply to* selects all cameras or one. **Crop**: X, Y, Width, Height (or *Centre on the sensor*), then *Apply crop* or *Full frame*. A dashed box previews the crop on the full-frame image, and the panel shows how fast MJPEG can record at that size. |
-| **Sync** tab | Mode A / B / C with a description and wiring hint. **Only the fields the selected mode uses are enabled**; the others are greyed out, and their panel title says which mode uses them. See §6. |
+| **Sync** tab | Mode A / B / C with a description and wiring hint. **Only the fields the selected mode uses are enabled**; the others are greyed out, and their panel title says which mode uses them. See §5. |
 
 **Recording tab fields**
 
@@ -324,7 +265,7 @@ cm.resetRoi();                                     % full frame again
 * The crop applies to preview, video and the embedded TTL (still decoded for every frame),
   and is saved in `_session.json` (`Width`, `Height`, `OffsetX`, `OffsetY`).
 * The camera's own limit stays **150.7 fps** for every crop size; cropping helps the encoder
-  and the shared USB controller keep up. Measured with both cameras and MJPEG (§10):
+  and the shared USB controller keep up. Measured with both cameras and MJPEG (§9):
   1024×900 at 120 fps and 960×720 at 150 fps, 0 missed frames and 0 writer drops.
 * The camera keeps a crop until it is changed or the camera is power-cycled, so a crop set
   in one session is still active in the next. The Camera tab shows the current crop.
@@ -342,7 +283,7 @@ T = spincam.io.mergeFrameLogs(s);                 % both cameras, with a Name co
 
 ---
 
-## 6. Synchronization modes
+## 5. Synchronization modes
 
 Sync settings apply to every connected camera. In the viewer use the **Sync** tab; in code
 call `cm.configureSync(mode, Name, Value, ...)` (or set properties on `cm.Sync` and call
@@ -410,20 +351,16 @@ onsetTimes_us = T.HardwareTimestamp_us(onsetRows);          % camera clock
   badge; or run `spincam.tools.verifyTtlInput(10)` and pulse during the 10 s. It reports
   rising and falling edges per camera.
 
-**Verified 2026-09-15** on both cameras with passive sync (embedded TTL on Line0, `avi-mjpeg`)
-at 120 fps, 10 s recording. The same checks passed at 100 fps full frame and with cropped
-frames (1024×900 at 120 fps, 960×720 at 150 fps; §10).
+The camera writes the pin state into the first pixels of each frame, so the TTL state is
+latched by camera hardware rather than sampled by the host
+([docs/architecture.md](docs/architecture.md#how-per-frame-ttl-state-is-captured)). Those
+pixels are restored in the saved video (`ScrubEmbeddedPixels`).
 
-* 1226 frames per camera, 0 missed, 0 incomplete, 0 writer drops; embedded frame counter continuous
-* `TTL_State` decoded for every frame (`TTL_Source = embedded`)
-* `GPIO_LineStatus` was 8 on 24226887 and 12 on 24226657, identical to each camera's live
-  `LineStatusAll`, so the per-frame bits are the real pin states
-* hardware frame interval 8368 µs (p1–p99: 8364–8372 µs)
-* video frames = CSV rows, and video/CSV names identical
-
-No TTL source was connected during this check, so detection of real **edges** is covered by the
-synthetic-camera tests (`TTL_State` equals the ground-truth square wave frame by frame) but not yet
-on the rig. Confirm your wiring once with Bpod pulses and `verifyTtlInput`.
+Embedded TTL decoding was verified on both cameras at 100 and 120 fps full frame and with
+cropped frames up to 150 fps, but **no TTL source was connected** during those checks: detection of
+real edges is so far covered only by the synthetic-camera tests. Confirm your wiring once with
+Bpod pulses and `verifyTtlInput`. Details:
+[docs/performance.md](docs/performance.md#hardware-validation-records).
 
 ### Mode B: `'triggered'`
 
@@ -445,10 +382,74 @@ cm.configureSync('triggered', 'TriggerType', 'start');      % free-run, start at
 cm.configureSync('strobe', 'StrobeLine', 'Line1', 'StrobeEveryN', 1);
 ```
 
-TTL logging on *TTL line* continues exactly as in mode A. The strobe pattern registers
-were confirmed present on the connected cameras (`0x110C = 0x80000100`, masks
-`0x8000FFFF`). Check the output waveform on an oscilloscope before relying on it
-experimentally.
+TTL logging on *TTL line* continues exactly as in mode A. Check the output waveform on an
+oscilloscope before relying on it experimentally.
+
+---
+
+## 6. Bpod integration
+
+Acquisition runs on native threads, so it keeps going while `RunStateMachine` blocks
+MATLAB. A typical wiring is **Bpod BNC output 1 → camera Line0 (yellow/brown)**; Bpod BNC
+outputs are 5 V TTL, which the opto-isolated input accepts directly (§3). Each
+trial raises the BNC for 50 ms, and the per-frame `TTL_State` column then marks trial
+onsets in the video.
+
+```matlab
+function SpinCamBpodProtocol
+global BpodSystem
+
+%% --- camera setup (once per session) ---
+subject = BpodSystem.GUIData.SubjectName;
+[~, session] = fileparts(BpodSystem.Path.CurrentDataFile);   % e.g. mouse01_Task_20260915_143012
+cm = spincam.CameraManager();              % 100 fps, cameras named topview / sideview
+cm.connect();
+cm.setProperty('ExposureTime', 4000);
+cm.configureSync('passive', 'TtlLine', 'Line0');    % Bpod BNC1 -> yellow/brown
+cm.Recorder.Format = 'avi-mjpeg';          % native encoder: safe while MATLAB is blocked
+cm.startRecording(cm.sessionFolder(subject, session), subject);
+cleanup = onCleanup(@() stopCameras(cm));  % runs even if the protocol errors
+
+MaxTrials = 200;
+for currentTrial = 1:MaxTrials
+    sma = NewStateMachine();
+    sma = AddState(sma, 'Name', 'SyncPulse', 'Timer', 0.05, ...
+        'StateChangeConditions', {'Tup', 'ITI'}, ...
+        'OutputActions', {'BNC1', 1});                % 50 ms TTL -> camera Line0
+    sma = AddState(sma, 'Name', 'ITI', 'Timer', 2, ...
+        'StateChangeConditions', {'Tup', 'exit'}, 'OutputActions', {});
+    SendStateMachine(sma);
+    cm.logEvent('TrialStart', currentTrial);          % host-clock marker
+    RawEvents = RunStateMachine;                      % MATLAB blocks; cameras keep recording
+    if ~isempty(fieldnames(RawEvents))
+        BpodSystem.Data = AddTrialEvents(BpodSystem.Data, RawEvents);
+        SaveBpodSessionData;
+    end
+    HandlePauseCondition;
+    if BpodSystem.Status.BeingUsed == 0
+        return
+    end
+end
+end
+
+function stopCameras(cm)
+if isvalid(cm)
+    if strcmp(cm.State, 'recording'), cm.stopRecording(); end
+    delete(cm);
+end
+end
+```
+
+A runnable copy is in `examples/bpod/SpinCamBpodProtocol.m`. Aligning trials afterwards:
+
+```matlab
+folder = 'D:\videoData\mouse01\mouse01_Task_20260915_143012';
+info = dir(fullfile(folder, '*_session.json'));
+session = jsondecode(fileread(fullfile(folder, info(1).name)));
+T = spincam.io.mergeFrameLogs(folder, session.Recording.BaseName);
+top = T(T.Name == "topview", :);
+onsets = top(diff([0; top.TTL_State]) == 1, :);   % first frame of each 50 ms trial pulse
+```
 
 ---
 
@@ -538,9 +539,9 @@ E  = spincam.io.readEventLog('D:\videoData\mouse01\20260915\mouse01_20260915_143
 | `setCameraName(id, name)` | File-name prefix for a camera; must be unique; remembered across reconnects |
 | `setProperty(name, value, ids)` | Friendly or raw GenICam name; applies to all cameras when `ids` is omitted |
 | `v = getProperty(name, ids)` | Vector (numeric) or cell (enum/string) |
-| `roi = setRoi([x y w h], ids, 'Center', tf)` | Crop (§5). Refused while recording; preview restarts. Returns one accepted `[x y w h]` row per camera |
+| `roi = setRoi([x y w h], ids, 'Center', tf)` | Crop (§4). Refused while recording; preview restarts. Returns one accepted `[x y w h]` row per camera |
 | `roi = getRoi(ids)` / `roi = resetRoi(ids)` | Current crop / full frame |
-| `configureSync(mode, Name,Value)` / `applySync()` | See §6 |
+| `configureSync(mode, Name,Value)` / `applySync()` | See §5 |
 | `startPreview()` / `stopPreview()` | Stream without recording |
 | `[frames, meta] = getLatestFrames(ids)` | Cell of `uint8` H×W images; `meta` struct array (FrameId, TTL, Width, Height) |
 | `folder = sessionFolder(subject, session)` | `<DataRoot>\<subject>\<session>` (session optional; subject required). Does not create it |
@@ -583,7 +584,7 @@ Friendly property names (aliases in parentheses):
 ### `spincam.SyncController` (handle)
 
 `s = spincam.SyncController('strobe','StrobeEveryN',2)`. Its properties are listed in
-§6. Methods:
+§5. Methods:
 
 * `validate(device)`: throws `spincam:sync:*` errors for impossible configurations
 * `plan = apply(device)`: returns the engine TTL settings
@@ -616,7 +617,7 @@ without it `startRecording` raises `spincam:recorder:noSpinVideo`.
 > exact, but MATLAB must not be blocked. The per-frame CSV metadata is exact in every format.
 >
 > `startRecording` warns (`spincam:recorder:encoderMayNotKeepUp`) when the frame rate
-> exceeds the encoder speed measured for the frame size (see §10).
+> exceeds the encoder speed measured for the frame size (see §9).
 
 ### `spincam.LiveViewer`
 
@@ -636,7 +637,7 @@ Programmatic equivalents of the UI actions (used by the tests): `togglePreview(o
 
 | Function | Purpose |
 |---|---|
-| `spincam.setup(Name,Value)` | Environment check, Spinnaker location and engine build: `'SpinnakerDir'`, `'BrowseSpinnaker'`, `'SavePath'`, `'ForceBuild'`, `'ListCameras'`, `'Quiet'` (§4). Returns a report struct |
+| `spincam.setup(Name,Value)` | Environment check, Spinnaker location and engine build: `'SpinnakerDir'`, `'BrowseSpinnaker'`, `'SavePath'`, `'ForceBuild'`, `'ListCameras'`, `'Quiet'` (§2). Returns a report struct |
 | `spincam.tools.probeCameras()` | Dumps identity, key nodes, line capabilities, FRAME_INFO / strobe-pattern registers |
 | `spincam.tools.verifyTtlInput(seconds)` | Streams at 100 fps (`'FrameRate'`) in passive mode and prints per-camera TTL edges and lines that were high (apply a TTL to check the wiring) |
 | `spincam.tools.benchmarkWriters()` | Throughput of each video format with synthetic frames |
@@ -644,147 +645,13 @@ Programmatic equivalents of the UI actions (used by the tests): `togglePreview(o
 | `spincam.io.mergeFrameLogs(summary)` / `(folder, baseName)` | All camera logs of one recording with a `Name` column, sorted by host time |
 | `r = spincam.io.RawVideoReader(file)` | `r.read(k)` / `r.read([first last])` → H×W(×N) `uint8`. Properties: `Width`, `Height`, `NumFrames`, `FrameRate`, `CameraId` |
 | `spincam.io.rawToAvi(rawFile, aviFile, 'Profile', ...)` | Converts `.raw` to *Grayscale AVI* (lossless, default) or *Motion JPEG AVI*; frame order and indices are preserved |
-| `spincam.internal.toWindowsPath(p)` | Converts `/mnt/c/...` WSL paths to `C:\...` (applied to all user paths) |
 
 ---
 
-## 9. Bpod integration
+## 9. Performance and limits
 
-Acquisition runs on native threads, so it keeps going while `RunStateMachine` blocks
-MATLAB. A typical wiring is **Bpod BNC output 1 → camera Line0 (yellow/brown)**. Each
-trial raises the BNC for 50 ms, and the per-frame `TTL_State` column then marks trial
-onsets in the video.
-
-```matlab
-function SpinCamBpodProtocol
-global BpodSystem
-
-%% --- camera setup (once per session) ---
-subject = BpodSystem.GUIData.SubjectName;
-[~, session] = fileparts(BpodSystem.Path.CurrentDataFile);   % e.g. mouse01_Task_20260915_143012
-cm = spincam.CameraManager();              % 100 fps, cameras named topview / sideview
-cm.connect();
-cm.setProperty('ExposureTime', 4000);
-cm.configureSync('passive', 'TtlLine', 'Line0');    % Bpod BNC1 -> yellow/brown
-cm.Recorder.Format = 'avi-mjpeg';          % native encoder: safe while MATLAB is blocked
-cm.startRecording(cm.sessionFolder(subject, session), subject);
-cleanup = onCleanup(@() stopCameras(cm));  % runs even if the protocol errors
-
-MaxTrials = 200;
-for currentTrial = 1:MaxTrials
-    sma = NewStateMachine();
-    sma = AddState(sma, 'Name', 'SyncPulse', 'Timer', 0.05, ...
-        'StateChangeConditions', {'Tup', 'ITI'}, ...
-        'OutputActions', {'BNC1', 1});                % 50 ms TTL -> camera Line0
-    sma = AddState(sma, 'Name', 'ITI', 'Timer', 2, ...
-        'StateChangeConditions', {'Tup', 'exit'}, 'OutputActions', {});
-    SendStateMachine(sma);
-    cm.logEvent('TrialStart', currentTrial);          % host-clock marker
-    RawEvents = RunStateMachine;                      % MATLAB blocks; cameras keep recording
-    if ~isempty(fieldnames(RawEvents))
-        BpodSystem.Data = AddTrialEvents(BpodSystem.Data, RawEvents);
-        SaveBpodSessionData;
-    end
-    HandlePauseCondition;
-    if BpodSystem.Status.BeingUsed == 0
-        return
-    end
-end
-end
-
-function stopCameras(cm)
-if isvalid(cm)
-    if strcmp(cm.State, 'recording'), cm.stopRecording(); end
-    delete(cm);
-end
-end
-```
-
-A runnable copy is in `examples/bpod/SpinCamBpodProtocol.m`. Aligning trials afterwards:
-
-```matlab
-folder = 'D:\videoData\mouse01\mouse01_Task_20260915_143012';
-info = dir(fullfile(folder, '*_session.json'));
-session = jsondecode(fileread(fullfile(folder, info(1).name)));
-T = spincam.io.mergeFrameLogs(folder, session.Recording.BaseName);
-top = T(T.Name == "topview", :);
-onsets = top(diff([0; top.TTL_State]) == 1, :);   % first frame of each 50 ms trial pulse
-```
-
----
-
-## 10. Performance notes and limits
-
-Measured 2026-09-15 on the development rig: i7-14700K, 64 GB RAM, Samsung 990 PRO NVMe,
-Windows 11, 2 × CM3-U3-13Y3M at 1280×1024 Mono8, 3 ms exposure.
-
-**Acquisition (camera → engine)**
-
-| Configuration | Result |
-|---|---|
-| One camera at 150 fps, 15 s (each camera tested alone) | 0 frames missed, 150–151 fps |
-| Both cameras at 150 fps, 15–20 s | **6–44 % of frames missed** (skipped on the cameras) |
-| Both cameras at 120 fps, 15 s | 0 missed |
-| Both cameras at the default 120 fps (node reads 120.0856 Hz), 10 s, `avi-mjpeg`, passive sync | 0 missed; hardware frame interval 8368 µs, i.e. the cameras actually deliver **119.50 fps** |
-| Both cameras at 100 fps, 15 s | 0 missed; hardware frame interval 9.998–10.002 ms; host arrival interval p99 ≈ 10.2 ms |
-| Both cameras at the default 100 fps (full frame), 20 s, `avi-mjpeg` | 0 missed; hardware frame interval 10036 µs (99.64 fps) |
-| Both cameras cropped to 960×720 at 150 fps, 20 s | 0 missed: smaller frames fit the shared controller |
-
-Both cameras sit on **one Renesas µPD720202 USB 3.0 controller**. At 150 fps each camera
-sends about 196 MB/s, and together they exceed what that controller carries. The lost
-frames never leave the camera: Spinnaker's `StreamDroppedFrameCount`/`StreamLostFrameCount`
-and the camera's `TransmitFailureCount` all stay 0. spincam's FrameID and embedded-counter
-check still reports every gap in `FramesMissedBefore`. For two cameras above ~120 fps at
-full frame, use separate USB 3.0 host controllers or a smaller ROI. `CameraManager` warns
-(`spincam:manager:usbBandwidth`) above ~340 MB/s combined. So 120 fps is the highest
-full-frame rate for two cameras on this controller; the **default is 100 fps** because of the
-MJPEG encoder (below).
-
-**Writers** (`spincam.tools.benchmarkWriters`, 1280×1024 frames, frames/s per camera;
-every camera has its own native writer thread)
-
-| Format | Frames/s | Notes |
-|---|---|---|
-| `raw` | **3353** | Disk speed (≈ 4.2 GB/s), lossless |
-| `avi-raw` | 110–114 | SpinVideo, I420 |
-| `avi-mjpeg` | 115–116 | SpinVideo, ≈ 3 MB/s |
-| `mp4-h264` | 121–124 | SpinVideo/x264 (the synthetic pattern compresses unusually well) |
-| `matlab-avi` | 371–382 | MATLAB thread shared by all cameras; not Bpod-safe |
-| `matlab-mjpeg` | 85–88 | MATLAB thread |
-
-**Real camera frames, both cameras recording together** (auto exposure, auto gain 18 dB, dark
-scene; 15–20 s per configuration, 2026-09-15). Writer-queue growth above 0 means the encoder
-is slower than the camera:
-
-| Frame size | Frame rate | Format | Writer queue growth per camera | Missed / writer drops | Video data per camera |
-|---|---|---|---|---|---|
-| 1280×1024 | **100 fps (default)** | `avi-mjpeg` Q75 | 0 (flat) | 0 / 0 | 2.9–3.7 MB/s |
-| 1280×1024 | 120 fps | `avi-mjpeg` Q75 | +12 to +15 frames/s (≈ 104–108 fps encoded) | 0 / 0 in 15 s; drops start when the 1200-frame queue is full (~80–100 s) | ≈ 3.5 MB/s |
-| 1280×1024 | 120 fps | `avi-mjpeg` Q50 | +14 frames/s | as above | ≈ 3 MB/s |
-| 1280×1024 | 120 fps | `mp4-h264` | +49 frames/s (≈ 70 fps encoded) | as above, sooner | ≈ 23 MB/s |
-| 1280×1024 | 120 fps | `raw` | 0 | 0 / 0 | 148 MB/s |
-| **1024×900** | **120 fps** | `avi-mjpeg` Q75 | 0 (flat) | 0 / 0 | 2.6–3.1 MB/s |
-| **960×720** | **150 fps** | `avi-mjpeg` Q75 | 0 to +0.4 frames/s | 0 / 0 | 2.3–2.7 MB/s |
-
-On real frames MJPEG encodes ≈ 104 fps per camera at full frame (the synthetic benchmark
-overstates this). Speed scales with the pixel count; `startRecording` uses that estimate
-(`VideoRecorder.MeasuredCapacity`) for its `spincam:recorder:encoderMayNotKeepUp` warning.
-Lowering MJPEG quality barely helps. The writer queue (`QueueSeconds`) absorbs bursts, and any
-overflow is flagged per frame (`WriterDropFlag`), never silent. Earlier short runs with 0 missed
-frames and 0 writer drops: 100 fps `avi-raw` (10 s) and 120 fps `raw` (15 s).
-
-**30-minute soak test with the defaults** (2026-09-15; both cameras, 1280×1024, 100 fps,
-`avi-mjpeg`, passive sync, auto exposure/gain):
-
-| Camera | Frames logged = written | Missed | Writer drops | Queue peak | Video file | Hardware frame interval |
-|---|---|---|---|---|---|---|
-| sideview (24226887) | 179 597 | 0 | 0 | 3 | 5.42 GB (3.08 MB/s) | median 10036 µs, max 10041 µs |
-| topview (24226657) | 179 596 | 0 | 0 | 3 | 6.74 GB (3.83 MB/s) | median 10036 µs, max 10041 µs |
-
-Measured fps stayed at 99.6–99.8 throughout, the writer queue never exceeded 3 frames, and
-MATLAB's memory use stayed flat at 2.0 GB. Both videos open in `VideoReader` with exactly as
-many frames as their CSV rows, and the embedded TTL was decoded for every frame. Together the
-two videos grow by ≈ 24 GB per hour.
+Measured on the development rig (2 × CM3-U3-13Y3M on one shared USB 3.0 controller,
+i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/performance.md).
 
 **Recommended settings**
 
@@ -794,6 +661,23 @@ two videos grow by ≈ 24 GB per hour.
 | 120 fps | Crop to 1024×900 or smaller (`setRoi`), `avi-mjpeg` |
 | 150 fps (camera maximum) | Crop to 960×720 or smaller, `avi-mjpeg` |
 | Bit-exact pixels, or full frame above 100 fps, short recordings | `raw`, then `spincam.io.rawToAvi` |
+
+**Limits**
+
+* **USB bandwidth.** Two full-frame cameras on one USB 3.0 controller sustain at most
+  120 fps; at 150 fps 6–44 % of frames are skipped on the cameras. Crop, or use separate
+  controllers. Missed frames are always reported in `FramesMissedBefore`, and `CameraManager`
+  warns (`spincam:manager:usbBandwidth`) above ≈ 340 MB/s combined.
+* **MJPEG encoder.** On real frames `avi-mjpeg` encodes ≈ 104 fps per camera at full frame,
+  which is why the default is 100 fps. Speed scales with the pixel count: 1024×900 keeps up at
+  120 fps, and 960×720 at 150 fps. `startRecording` warns
+  (`spincam:recorder:encoderMayNotKeepUp`) when the frame rate exceeds that estimate. Frames
+  that overflow the writer queue (`QueueSeconds`) are flagged (`WriterDropFlag`), never lost
+  silently.
+* **`raw`** keeps up at any camera rate (disk speed) and is bit-exact, but needs ≈ 0.9 TB per
+  hour at 100 fps.
+* A 30-minute recording with the defaults had 0 missed frames, 0 writer drops, a writer queue of
+  at most 3 frames and flat MATLAB memory.
 
 **Long sessions: disk, RAM and CPU** (two cameras, full frame, 100 fps, `avi-mjpeg`)
 
@@ -810,12 +694,8 @@ two videos grow by ≈ 24 GB per hour.
   outside MATLAB, so Bpod's `RunStateMachine` does not affect recording. Running the viewer in a
   separate MATLAB session from Bpod keeps its preview responsive.
 
-**Other measurements**
+**Timing**
 
-* Copying .NET → MATLAB `uint8` costs about 0.74 ms per full frame. That is why per-frame
-  work stays in the C# engine and preview is capped at `PreviewMaxHz` (30).
-* A `LineStatusAll` read costs about 0.67 ms, which is why embedded GPIO is the default TTL
-  source.
 * The video container's frame rate is the camera's `AcquisitionFrameRate` node, while the
   cameras deliver slightly fewer frames (measured 99.64 fps with the node at 100, 119.50 fps
   with it at 120.0856). Video playback time is therefore up to ≈ 0.5 % off. Always take timing
@@ -826,35 +706,7 @@ two videos grow by ≈ 24 GB per hour.
 
 ---
 
-## 11. Testing
-
-```matlab
-cd C:\Users\harrislab\Documents\MATLAB\SpinCam
-results = runTests();              % unit + integration (mock backend; no cameras needed)
-results = runTests('hardware');    % additionally runs tests/hardware (cameras attached)
-```
-
-From WSL:
-
-```bash
-cd /mnt/c/Users/harrislab/Documents/MATLAB/SpinCam
-"/mnt/c/Program Files/MATLAB/R2025b/bin/matlab.exe" -batch "runTests"
-```
-
-| Suite | Needs | Covers |
-|---|---|---|
-| `tests/unit` (68) | MATLAB only | FRAME_INFO bit maths (including bytes captured from the real cameras), GPIO decoding, strobe pattern registers, path conversion and name cleaning, mock node-map rules, property side effects and clamping, crop ordering/rounding/restore, sync-mode node/register write order and validation, per-mode sync options, finding Spinnaker in different install layouts (fake files) |
-| `tests/integration` (41) | Windows + .NET + Spinnaker assemblies | C# engine with synthetic cameras: CSV schema, TTL versus ground truth, drop, incomplete and writer-overflow flags, TTL start gate, lossless `raw` read-back, exact video-index ↔ CSV-row mapping, SpinVideo and MATLAB `VideoWriter` output; engine build without SpinVideo and build stamp; `CameraManager` end-to-end including file naming, session folders, camera names, default frame rate, cropped recording and overwrite protection; `LiveViewer` recording into `<root>\<subject>\<session>`, crop from the Camera tab, mode-dependent sync fields, subject required |
-| `tests/hardware` (9) | Cameras attached, SpinView closed | Identity, property round-trips, register layout, 60 fps preview, 3 s passive recording at 100 fps with embedded TTL, file naming and MJPEG frame count, cropped 1024×900 recording at 120 fps, triggered-mode configuration, strobe pattern on Line1, repeated start/stop. Settings, crop and trigger nodes are restored afterwards. |
-
-Last run (2026-09-15, engine 1.1.0 built by `spincam.setup` against Spinnaker 4.2.0.83): unit
-68/68, integration 41/41, hardware 9/9 on both cameras, followed by the 30-minute soak test in
-§10. Camera state (full frame, 120.0856 fps, FRAME_INFO, trigger nodes) was verified restored
-afterwards with `spincam.tools.probeCameras`.
-
----
-
-## 12. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -873,8 +725,23 @@ afterwards with `spincam.tools.probeCameras`.
 | Engine build fails after a Spinnaker update | The installed .NET API no longer has a member spincam uses; the compiler message names it. Reinstall the verified version (4.2.0.83) or report the message. |
 | `spincam:roi:adjusted` | The crop was rounded to the camera's steps or moved onto the sensor; the returned `[x y w h]` is what the camera uses. |
 | Unexpected image size / cropped view | A crop from an earlier session is still active (cameras keep it until power-cycled). Click *Full frame* on the Camera tab or run `cm.resetRoi()`. |
-| Frames missed at > 120 fps with two cameras (`FramesMissedBefore` > 0, while Spinnaker's `StreamLostFrameCount` stays 0) | The frames are skipped on the cameras because both share one USB 3.0 controller. Use separate controllers, or ≤ 120 fps / a smaller ROI; see §10. |
+| Frames missed at > 120 fps with two cameras (`FramesMissedBefore` > 0, while Spinnaker's `StreamLostFrameCount` stays 0) | The frames are skipped on the cameras because both share one USB 3.0 controller. Use separate controllers, or ≤ 120 fps / a smaller ROI; see §9. |
 | "Writer did not finish within … ms" with 0 frames written, or MATLAB crashing in `SpinVideo::Open` / `avcodec-57.dll` | SpinVideo's ffmpeg 3.x is not safe when several writers open or close at the same moment. Since 2026-09-15 the engine serializes these calls; make sure `native\bin\SpinCamEngine.dll` is rebuilt (`spincam.setup('ForceBuild',true)` in a fresh MATLAB) and restart MATLAB. |
-| `WriterDropFlag` = 1 / writer drops in the summary | The encoder is slower than the camera. Lower the frame rate (≤ 100 fps at full frame), crop (`setRoi`), or use `raw`; see §10. |
-| TTL never changes in CSV / TTL badge stays grey | Run `spincam.tools.verifyTtlInput(10)` while pulsing. Check yellow/brown polarity and that the pulse is longer than a frame period (≥ 15 ms at 100 fps). |
+| `WriterDropFlag` = 1 / writer drops in the summary | The encoder is slower than the camera. Lower the frame rate (≤ 100 fps at full frame), crop (`setRoi`), or use `raw`; see §9. |
+| TTL never changes in CSV / TTL badge stays grey | Run `spincam.tools.verifyTtlInput(10)` while pulsing. Check yellow/brown polarity, that the source drives 5 V (3.3 V logic may not switch the opto-isolated input; §3), and that the pulse is longer than a frame period (≥ 15 ms at 100 fps). |
 | Warning "Unable to obtain a change notification handle" | Harmless. MATLAB started from a `\\wsl.localhost` path; start it from the Windows project folder instead. |
+
+---
+
+## 11. Developer documentation
+
+Background that is not needed to use spincam lives in [`docs/`](docs/):
+
+* [docs/architecture.md](docs/architecture.md): backend choice, layering, how per-frame TTL
+  state is captured, how the engine is built against Spinnaker
+* [docs/performance.md](docs/performance.md): benchmark and soak-test measurements, hardware
+  validation records
+* [docs/development.md](docs/development.md): test suites, workstation dependency audit,
+  internal utilities
+* [CLAUDE.md](CLAUDE.md): contributor rules, verified hardware facts, design decisions and
+  coding conventions
