@@ -181,6 +181,12 @@ namespace SpinCam
                 {
                     _fault = _fault == null ? closeError : _fault + " | " + closeError;
                 }
+                if (_fault != null && _avi != null)
+                {
+                    // Write already returned indexes for frames that never reached the file.
+                    _fault += " (the video holds " + _avi.Frames + " of " + _nextIndex +
+                        " accepted frames; CSV rows with VideoFrameIndex >= " + _avi.Frames + " have no video frame)";
+                }
                 _files = _avi != null ? new string[] { _path } : new string[0];
                 while (_jobs.Count > 0)
                 {

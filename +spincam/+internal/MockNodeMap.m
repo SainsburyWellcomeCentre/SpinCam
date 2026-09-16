@@ -20,6 +20,7 @@ classdef MockNodeMap < spincam.internal.NodeMapAdapter
         Nodes
         Overrides
         Rules
+        WriteFilters
     end
 
     methods
@@ -27,6 +28,7 @@ classdef MockNodeMap < spincam.internal.NodeMapAdapter
             obj.Nodes = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.Overrides = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.Rules = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.WriteFilters = containers.Map('KeyType', 'char', 'ValueType', 'any');
         end
 
         function addNode(obj, name, type, value, opts)
@@ -67,6 +69,12 @@ classdef MockNodeMap < spincam.internal.NodeMapAdapter
             %SETRULE Dynamic attributes: fcn(mockNodeMap) returns a struct of overrides.
             %   Rules must read other nodes with rawValue (not get) to avoid recursion.
             obj.Rules(name) = fcn;
+        end
+
+        function setWriteFilter(obj, name, fcn)
+            %SETWRITEFILTER Stored value = fcn(written value), e.g. the camera's quantization of
+            %   AcquisitionFrameRate. The write log keeps the value that was written.
+            obj.WriteFilters(char(name)) = fcn;
         end
 
         function setRaw(obj, name, value)
@@ -165,7 +173,12 @@ classdef MockNodeMap < spincam.internal.NodeMapAdapter
                 otherwise
                     error('spincam:node:unsupportedType', 'Cannot write %s node %s.', nd.Type, name);
             end
-            nd.Values(obj.selectorKey(nd)) = value;
+            stored = value;
+            if isKey(obj.WriteFilters, char(name))
+                filter = obj.WriteFilters(char(name));
+                stored = filter(value);
+            end
+            nd.Values(obj.selectorKey(nd)) = stored;
             obj.WriteLog(end + 1, :) = {char(name), value, obj.contextString(nd)};
         end
 

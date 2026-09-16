@@ -190,7 +190,11 @@ classdef CameraDevice < handle
                 if strcmp(name, 'Gamma') && ~obj.NodeMap.isAvailable('Gamma')
                     continue
                 end
-                obj.set(name, s.(name));
+                if strcmp(name, 'FrameRate')
+                    obj.restoreFrameRate(s.FrameRate);
+                else
+                    obj.set(name, s.(name));
+                end
             end
         end
 
@@ -384,6 +388,54 @@ classdef CameraDevice < handle
     end
 
     methods (Access = private)
+        function restoreFrameRate(obj, target)
+            %RESTOREFRAMERATE Make FrameRate read back TARGET (a value read from the camera).
+            %   The CM3 quantizes AcquisitionFrameRate, and writing a read-back value can land
+            %   one step higher (100.0582 -> 100.1222), so a plain write drifts a snapshot on
+            %   every restore. The write -> read-back map is monotonic: bisect the written value.
+            actual = obj.set('FrameRate', target);
+            tol = 1e-6 * abs(target);
+            if abs(actual - target) <= tol
+                return
+            end
+            nm = obj.NodeMap;
+            node = obj.resolve('FrameRate');
+            limits = nm.info(node);
+            side = sign(actual - target);       % side of TARGET that writing TARGET lands on
+            gap = abs(actual - target);
+            best = [target, actual];
+            near = target;                      % a write that reads back on SIDE
+            far = target;
+            crossed = false;
+            for k = 0:10
+                far = min(max(target - side * gap * 2^k, limits.Min), limits.Max);
+                nm.set(node, far);
+                value = nm.get(node);
+                if abs(value - target) < abs(best(2) - target)
+                    best = [far, value];
+                end
+                if sign(value - target) ~= side
+                    crossed = true;
+                    break
+                end
+                near = far;
+            end
+            while crossed && abs(best(2) - target) > tol && abs(far - near) > 1e-9 * abs(target)
+                mid = (near + far) / 2;
+                nm.set(node, mid);
+                value = nm.get(node);
+                if abs(value - target) < abs(best(2) - target)
+                    best = [mid, value];
+                end
+                if sign(value - target) == side
+                    near = mid;
+                else
+                    far = mid;
+                end
+            end
+            nm.set(node, best(1));
+        end
+
         function [node, def] = resolve(obj, name)
             def = spincam.internal.PropertyRegistry.lookup(name);
             if isempty(def)

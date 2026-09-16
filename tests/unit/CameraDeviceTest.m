@@ -77,6 +77,23 @@ classdef CameraDeviceTest < matlab.unittest.TestCase
             tc.verifyFalse(isfield(s, 'Gamma'));
         end
 
+        function settingsRoundTripKeepsQuantizedFrameRate(tc)
+            % Like the CM3, the mock snaps the frame period to a grid so that writing a
+            % read-back value lands one step higher; restoring must not drift.
+            step_us = 6.39;
+            quantize = @(fps) 1e6 / (step_us * (ceil(1e6 / fps / step_us) - 1));
+            tc.NM.setWriteFilter('AcquisitionFrameRate', quantize);
+            snapped = tc.Device.set('FrameRate', 100);
+            tc.assertNotEqual(quantize(snapped), snapped, 'The model drifts on a plain write');
+            s = tc.Device.getSettings();
+            nm2 = spincam.internal.MockNodeMap.cm3();
+            nm2.setWriteFilter('AcquisitionFrameRate', quantize);
+            dev2 = tc.makeDevice(nm2);
+            dev2.set('FrameRate', 60);
+            dev2.applySettings(s);
+            tc.verifyEqual(dev2.get('FrameRate'), snapped, 'RelTol', 1e-9);
+        end
+
         function cropResetsOffsetsBeforeSize(tc)
             dev = tc.Device;
             tc.verifyEqual(dev.setRoi([104 50 640 480]), [104 50 640 480]);

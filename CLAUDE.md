@@ -96,7 +96,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
 | Spinnaker install layout | `C:\Program Files\Teledyne\Spinnaker\bin64\vs2015` holds `SpinnakerNET_v140.dll`, `SpinVideoNET_v140.dll` plus debug (`…NETd_v140`) and GUI (`SpinnakerNETGUI_v140`) variants that must be ignored; `bin64\vs2017` exists but has no .NET assemblies. Other versions/layouts are **not** available on this machine (only 4.2.0.83 tested) |
 | ROI (crop) | `Width` [16..1280] inc **16**, `Height` [2..1024] inc **2**, `OffsetX` inc **8**, `OffsetY` inc **2**; `OffsetX.Max = 1280 − Width`. `SensorWidth/SensorHeight` and `WidthMax/HeightMax` exist (read-only). Width/Height are **not writable while acquiring** (TLParamsLocked). `AcquisitionFrameRate` max stays **150.716** for every crop size. Crops persist in the camera across MATLAB sessions until changed or power-cycled. `BinningVertical` writable 1–2, `BinningHorizontal` read-only (unused) |
 | Default-settings soak | 30 min, both cameras, 1280×1024 @ 100 fps (node 100.058), `avi-mjpeg`, passive: 179 597 / 179 596 frames, 0 missed, 0 writer drops, queue peak 3, fps 99.6–99.8, hw interval 10036 µs (max 10041), MATLAB memory flat 2.0 GB, videos 5.42 + 6.74 GB (≈ 24 GB/h together), `VideoReader.NumFrames` = CSV rows |
-| Frame-rate quantization | Writing 120 reads 120.0856; writing 120.0856 reads **120.1772**. Restore frame rates by writing the originally *requested* value, not the read-back |
+| Frame-rate quantization | Writing 120 reads 120.0856; writing that read-back (full precision) reads **120.1772**. Writing the read-back lands one step higher at every rate tried (1–150 fps, 2026-09-16). `CameraDevice.applySettings` therefore bisects the written value until it reads back the snapshot (≈ 25 ms); elsewhere restore by writing the originally *requested* value |
 | Cropped / 100 fps MJPEG (real frames) | Both cameras, 20 s each, queue growth per camera: 1280×1024 @ 100 fps **0** (hw interval 10036 µs = 99.64 fps; 2.9–3.7 MB/s per camera); 1024×900 @ 120 fps **0** (2.6–3.1 MB/s); 960×720 @ 150 fps 0 to +0.4 frames/s (2.3–2.7 MB/s); all 0 missed, 0 writer drops, embedded GPIO decoded (8 / 12) |
 | Parallel MJPEG (`avi-mjpeg-mt`, 2026-09-16) | `JpegEncoder` 1280×1024: 5.4 ms/frame on one core (184 fps synthetic), 364/729/1257/1642 fps on 2/4/8/12 threads; PSNR equal to MATLAB `imwrite` Q75 on the same frame. Real frames, both cameras, camera window open and MATLAB drawing: queue peak ≤ 2 at 100 and 120 fps with **one** thread per camera and with the automatic 7. Calibration on 60 real frames per camera against a lossless `raw` clip: SpinVideo Q75 32.5/40.4 KB per frame at PSNR 28.2/29.5 dB (sideview/topview); IJG Q30 32.6/42.4 KB at 36.7/34.4 dB. Media Foundation (`VideoReader`) reads OpenDML files with AVIX segments, frame count = CSV rows |
 | Spinnaker error codes | −1011 timeout (`GetNextImage`), −2006 GenICam AccessException, −1008 bad port address |
@@ -274,8 +274,10 @@ tests/unit|integration|hardware   matlab.unittest classes; runTests.m at root
     once left a camera cropped because its stream was still running.
   * .NET strings from engine objects (`RecordingOptions.CsvPath`, …) must be wrapped in
     `char()` before passing them to `spincam.io` functions.
-  * Restore the crop (`setRoi` to the snapshot) and the frame rate (requested value, see §3)
-    and confirm with `spincam.tools.probeCameras`.
+  * Restore the crop (`setRoi` to the snapshot) and the frame rate (requested value or
+    `applySettings`, see §3). Put restores in `try`/`catch` before deleting the manager: an
+    `onCleanup` declared after the manager's runs *after* it is deleted. Confirm with
+    `spincam.tools.probeCameras`.
 * Never edit `native/src` or classes used by a running MATLAB job. `NativeEngine.load`
   rebuilds a stale DLL on load, so edits during a run cause a mid-run rebuild.
 * Tolerances: synthetic fps is limited by Windows timer resolution. Assert counts within

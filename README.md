@@ -486,7 +486,7 @@ unless `cm.Overwrite = true`.
 
 | File | Content |
 |---|---|
-| `<stem>.avi` / `<stem>.mp4` | `avi-mjpeg-mt` writes `<stem>.avi` directly, as one OpenDML (AVI 2.0) file of any length. SpinVideo formats (`avi-mjpeg`, `avi-raw`, `mp4-h264`). SpinVideo itself always writes `<stem>-0000.avi`; when the recording stops, spincam renames it to `<stem>.avi` so it matches the CSV. With `MaxFileSizeMB > 0`, the numbered segments (`-0000`, `-0001`, …) are kept. The `matlab-*` formats write `<stem>.avi` directly. The final names are in `summary.Cameras(k).VideoFiles`. |
+| `<stem>.avi` / `<stem>.mp4` | `avi-mjpeg-mt` writes `<stem>.avi` directly, as one OpenDML (AVI 2.0) file of any length. The SpinVideo formats (`avi-mjpeg`, `avi-raw`, `mp4-h264`) always write `<stem>-0000.avi` (or `.mp4`); when the recording stops, spincam renames it to `<stem>.avi` (`.mp4`) so it matches the CSV. With `MaxFileSizeMB > 0`, the numbered segments (`-0000`, `-0001`, …) are kept. The `matlab-*` formats write `<stem>.avi` directly. The final names are in `summary.Cameras(k).VideoFiles`. |
 | `<stem>.raw` + `<stem>.raw.json` | `'raw'` format: 8-bit frames concatenated row-major (frame *i*, 0-based, starts at byte *i*·W·H), with geometry and frame rate in the JSON sidecar. Read it with `spincam.io.RawVideoReader`; convert it with `spincam.io.rawToAvi`. |
 | `<stem>.csv` | One row per frame received while recording (schema below). |
 | `<base>_events.csv` | `HostTime_s, HostTimestamp_datetime, Event, Value` rows from `cm.logEvent`, plus `RecordingStart` / `RecordingStop`. |
@@ -562,7 +562,7 @@ E  = spincam.io.readEventLog('D:\videoData\mouse01\20260915\mouse01_20260915_143
 | `Serial`, `Model`, `Firmware`, `Name` | Identity; `Name` is set through `cm.setCameraName` |
 | `v = get(name)` / `actual = set(name, value)` | Property access; `set` switches the related auto mode off, enables the feature node if needed, clamps to limits (with a warning), and returns the value read back |
 | `T = describeProperties()` | Table of friendly properties: node, value, min, max, unit, available, writable |
-| `s = getSettings()` / `applySettings(s)` | Struct round-trip for persisting setups (includes the crop) |
+| `s = getSettings()` / `applySettings(s)` | Struct round-trip for persisting setups (includes the crop). The frame rate is restored to the exact value read back, not re-quantized one step higher |
 | `roi = getRoi()` / `roi = setRoi([x y w h], 'Center', tf)` / `roi = resetRoi()` / `sz = sensorSize()` | Crop of this camera (stream must be stopped for `setRoi`); `sensorSize` = full frame `[width height]` |
 | `NodeMap`, `StreamNodeMap`, `Registers` | Low-level adapters (`get/set/info/execute`, `read/write`) |
 
@@ -602,7 +602,7 @@ Friendly property names (aliases in parentheses):
 | `Quality` | 75 | MJPEG quality 1–100 of `avi-mjpeg` (SpinVideo) and `matlab-mjpeg`; not the same scale as `JpegQuality` |
 | `H264BitrateMbps`, `H264Crf` | 8, 23 | H.264 settings |
 | `FrameRate` | `[]` | Container frame rate. `[]` uses the camera's `AcquisitionFrameRate` (30 in triggered mode if unknown) |
-| `MaxFileSizeMB` | 0 | 0 = no split (SpinVideo formats) |
+| `MaxFileSizeMB` | 0 | Split size of the SpinVideo formats; 0 = no split. `avi-mjpeg-mt` ignores it (one OpenDML file) |
 | `AviRiffSizeMB` | 0 | `avi-mjpeg-mt` OpenDML segment size; 0 = 1024. For tests only |
 | `QueueSeconds` | 10 | Writer queue depth, in seconds of video, before frames are dropped (flagged) |
 | `CsvExtended` | `true` | Write the extended CSV columns |
