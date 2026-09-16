@@ -135,6 +135,55 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
             tc.verifyEqual(summary.writerDrops, 0);
         end
 
+        function parallelMjpegWritesEveryFrameInOrder(tc)
+            % Four encoder threads finish frames out of order; the muxer must still write them
+            % in index order. A 1 MB RIFF limit makes the file cross into an OpenDML AVIX segment.
+            [T, summary] = tc.record('Fps', 150, 'Seconds', 2, 'Format', SpinCam.VideoFormat.AviMjpgParallel, ...
+                'EncoderThreads', 4, 'RiffMB', 1);
+            files = cellstr(summary.files);
+            tc.assertNumElements(files, 1);
+            tc.verifyTrue(endsWith(files{1}, '.avi'));
+            tc.verifyEmpty(summary.error);
+            tc.verifyEqual(summary.encoderThreads, 4);
+            tc.verifyEqual(summary.writerDrops, 0);
+            tc.verifyEqual(summary.framesWritten, summary.framesLogged);
+            fid = fopen(files{1}, 'r');
+            bytes = fread(fid, inf, '*uint8')';
+            fclose(fid);
+            tc.verifyNotEmpty(strfind(bytes, uint8('AVIX')), 'The recording crosses a RIFF segment');
+            reader = VideoReader(files{1});
+            tc.verifyEqual(reader.NumFrames, summary.framesWritten);
+            tc.verifyEqual([reader.Height reader.Width], [240 320]);
+            ids = T.DeviceFrameID(T.VideoFrameIndex >= 0);
+            misplaced = 0;
+            k = 0;
+            while hasFrame(reader)
+                frame = double(readFrame(reader));
+                k = k + 1;
+                if k == 1
+                    tc.verifyEqual(frame(:, :, 1), frame(:, :, 2), 'Gray: equal channels');
+                end
+                near = ids(max(1, k - 3):min(numel(ids), k + 3));
+                scores = arrayfun(@(id) correlation(frame(:, :, 1), renderPattern(id)), near);
+                [~, best] = max(scores);
+                misplaced = misplaced + (near(best) ~= ids(k));
+            end
+            tc.verifyEqual(k, numel(ids));
+            tc.verifyEqual(misplaced, 0, 'Every video frame is the frame its CSV row names');
+        end
+
+        function parallelMjpegPadsFramesThatAreNotWholeBlocks(tc)
+            [T, summary] = tc.record('Seconds', 0.5, 'Format', SpinCam.VideoFormat.AviMjpgParallel, ...
+                'Width', 250, 'Height', 170);
+            files = cellstr(summary.files);
+            reader = VideoReader(files{1});
+            tc.verifyEqual([reader.Height reader.Width], [170 250]);
+            tc.verifyEqual(reader.NumFrames, summary.framesWritten);
+            frame = double(read(reader, 1));
+            id = T.DeviceFrameID(T.VideoFrameIndex == 0);
+            tc.verifyGreaterThan(correlation(frame(:, :, 1), renderPattern(id, 250, 170)), 0.85);
+        end
+
         function rawRecordingIsLosslessAndIndexed(tc)
             [T, summary] = tc.record('Seconds', 0.8, 'Format', SpinCam.VideoFormat.Raw, 'Scrub', false);
             files = cellstr(summary.files);
@@ -245,12 +294,16 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
         end
 
         function writerBenchmarkRuns(tc)
-            json = SpinCam.Engine.BenchmarkWriter(fullfile(tc.OutDir, 'bench'), SpinCam.VideoFormat.AviMjpg, ...
-                int32(320), int32(240), int32(20), 30, int32(75));
-            r = jsondecode(char(json));
-            tc.verifyEqual(r.frames, 20);
-            tc.verifyGreaterThan(r.fps, 0);
-            tc.verifyTrue(isfile(char(cellstr(r.files))));
+            formats = {SpinCam.VideoFormat.AviMjpg, SpinCam.VideoFormat.AviMjpgParallel};
+            for k = 1:numel(formats)
+                json = SpinCam.Engine.BenchmarkWriter(fullfile(tc.OutDir, sprintf('bench%d', k)), formats{k}, ...
+                    int32(320), int32(240), int32(20), 30, int32(75));
+                r = jsondecode(char(json));
+                tc.verifyEqual(r.frames, 20);
+                tc.verifyGreaterThan(r.fps, 0);
+                tc.verifyTrue(isfile(char(cellstr(r.files))));
+                tc.verifyEqual(VideoReader(char(cellstr(r.files))).NumFrames, 20);
+            end
         end
     end
 
@@ -269,8 +322,12 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
                 opts.CsvExtended (1,1) logical = true
                 opts.Scrub (1,1) logical = true
                 opts.ExportCapacity (1,1) double = 1000
+                opts.EncoderThreads (1,1) double = 0
+                opts.RiffMB (1,1) double = 0
+                opts.Width (1,1) double = 320
+                opts.Height (1,1) double = 240
             end
-            src = SpinCam.SyntheticFrameSource('SIM1', int32(320), int32(240), opts.Fps);
+            src = SpinCam.SyntheticFrameSource('SIM1', int32(opts.Width), int32(opts.Height), opts.Fps);
             src.TtlHalfPeriodFrames = int32(opts.Half);
             src.DropEvery = int32(opts.DropEvery);
             src.IncompleteEvery = int32(opts.IncompleteEvery);
@@ -293,6 +350,8 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
             options.Gate = opts.Gate;
             options.CsvExtended = opts.CsvExtended;
             options.ExportCapacityFrames = int32(opts.ExportCapacity);
+            options.EncoderThreads = int32(opts.EncoderThreads);
+            options.AviRiffSizeMB = int32(opts.RiffMB);
             stream.StartRecording(options);
             pause(opts.Seconds);
             summary = jsondecode(char(stream.StopRecording(int32(60000))));
@@ -312,11 +371,15 @@ folder = fullfile(spincam.internal.NativeEngine.projectRoot(), 'tests', '_output
 mkdir(folder);
 end
 
-function img = renderPattern(frameId)
-source = SpinCam.SyntheticFrameSource('reference', int32(320), int32(240), 30);
-buffer = NET.createArray('System.Byte', 320 * 240);
+function img = renderPattern(frameId, width, height)
+if nargin < 2
+    width = 320;
+    height = 240;
+end
+source = SpinCam.SyntheticFrameSource('reference', int32(width), int32(height), 30);
+buffer = NET.createArray('System.Byte', width * height);
 source.Render(int64(frameId), buffer);
-img = reshape(double(uint8(buffer)), 320, 240)';
+img = reshape(double(uint8(buffer)), width, height)';
 end
 
 function r = correlation(a, b)

@@ -58,6 +58,9 @@ namespace SpinCam
                     case VideoFormat.Raw:
                         _sink = new RawSink(options);
                         break;
+                    case VideoFormat.AviMjpgParallel:
+                        _sink = new ParallelMjpegSink(options, pool);
+                        break;
                     default:
                         _sink = VideoSinkFactory.CreateSpinVideo(options);
                         break;
@@ -208,6 +211,8 @@ namespace SpinCam
             sb.Append(",\"framesIncomplete\":").Append(Json.Num(Interlocked.Read(ref _framesIncomplete)));
             sb.Append(",\"queueDepth\":").Append(Json.Num(queued));
             sb.Append(",\"queuePeak\":").Append(Json.Num(queuePeak));
+            ParallelMjpegSink parallel = _sink as ParallelMjpegSink;
+            sb.Append(",\"encoderThreads\":").Append(parallel == null ? "null" : Json.Num(parallel.ThreadCount));
             sb.Append(",\"gateOpen\":").Append(Json.Bool(_gateOpen));
             sb.Append(",\"gateOpenedHostTime_s\":").Append(gate < 0 ? "null" : Json.Num(HostClock.TicksToSeconds(gate)));
             sb.Append(",\"firstHostTime_s\":").Append(first < 0 ? "null" : Json.Num(HostClock.TicksToSeconds(first)));

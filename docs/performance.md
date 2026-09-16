@@ -64,9 +64,51 @@ Lowering MJPEG quality barely helps. The writer queue (`QueueSeconds`) absorbs b
 overflow is flagged per frame (`WriterDropFlag`), never silent. Earlier short runs with 0 missed
 frames and 0 writer drops: 100 fps `avi-raw` (10 s) and 120 fps `raw` (15 s).
 
+## Multi-core MJPEG (`avi-mjpeg-mt`, default since 2026-09-16)
+
+**Why.** In a LuminoseFM session (Bpod emulator running trials, camera window at 5 Hz, plots) the
+SpinVideo `avi-mjpeg` writer queue at 100 fps full frame peaked at 515 and 673 frames in 4.7 min;
+with the window alone it grew +1.4 and +2.3 frames/s, which fills the 1200-frame queue in
+~10–15 min. With MATLAB idle it stayed flat (peak 3): the single-threaded encoder has only ~4 %
+headroom at 100 fps.
+
+**Encoder speed** (`JpegEncoder`, synthetic 1280×1024 frame, Q75): one thread 184 fps
+(5.4 ms/frame); 2 / 4 / 8 / 12 threads 364 / 729 / 1257 / 1642 fps.
+
+**Real frames, both cameras, camera window open and MATLAB drawing** (45 s each):
+
+| Frame rate | Encoder threads per camera | Queue peak | Missed / writer drops |
+|---|---|---|---|
+| 100 fps | 1 | 1 | 0 / 0 |
+| 120 fps | 1 | 1 | 0 / 0 |
+| 120 fps | 7 (automatic) | 2 | 0 / 0 |
+
+**Quality and size** (60 real frames per camera, compared against a lossless `raw` clip of them):
+
+| Encoder | sideview KB/frame | sideview PSNR | topview KB/frame | topview PSNR |
+|---|---|---|---|---|
+| SpinVideo `avi-mjpeg`, Quality 75 | 32.5 | 28.2 dB | 40.4 | 29.5 dB |
+| `avi-mjpeg-mt`, JpegQuality 15 | 26.0 | 35.5 dB | 30.0 | 33.4 dB |
+| `avi-mjpeg-mt`, JpegQuality 30 (default) | 32.6 | 36.7 dB | 42.4 | 34.4 dB |
+| `avi-mjpeg-mt`, JpegQuality 75 | – | – | 134.1 | 35.8 dB |
+
+The two quality scales differ (ffmpeg's versus IJG's); above ~30 the extra bits mostly encode
+sensor noise. On a synthetic frame, JpegQuality 75 gives the same PSNR as MATLAB `imwrite` Q75.
+
+**17.5-minute LuminoseFM session** (Bpod emulator, 300 trials, camera window, defaults: 100 fps
+full frame, `avi-mjpeg-mt`, 7 threads per camera):
+
+| Camera | Frames logged = written = `VideoReader.NumFrames` | Missed | Writer drops | Queue peak | Video file | Hardware frame interval |
+|---|---|---|---|---|---|---|
+| sideview (24226887) | 104 354 | 0 | 0 | 2 | 3.41 GB (3.25 MB/s) | median 10036 µs, max 10041 µs |
+| topview (24226657) | 104 354 | 0 | 0 | 1 | 4.43 GB (4.23 MB/s) | median 10036 µs, max 10041 µs |
+
+≈ 27 GB per hour for both. The topview file crosses 4 GB: frames at the end decode (random access
+and sequential), and host arrival intervals stayed below 17 ms.
+
 ## 30-minute soak test with the defaults
 
-2026-09-15; both cameras, 1280×1024, 100 fps, `avi-mjpeg`, passive sync, auto exposure/gain.
+2026-09-15 (SpinVideo `avi-mjpeg`, the default then); both cameras, 1280×1024, 100 fps, `avi-mjpeg`, passive sync, auto exposure/gain.
 
 | Camera | Frames logged = written | Missed | Writer drops | Queue peak | Video file | Hardware frame interval |
 |---|---|---|---|---|---|---|

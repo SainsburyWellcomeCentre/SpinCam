@@ -49,7 +49,7 @@ provides:
 | Windows 10/11, 64-bit | **Required** |
 | MATLAB R2023b or newer | **Required** (developed on R2025b). No toolboxes: the Image Acquisition Toolbox and the GenICam / Point Grey support packages are **not** used |
 | .NET Framework 4.8 | **Required**; part of Windows 10/11 |
-| Spinnaker SDK or SpinView **with its .NET components** | **Required**, in any folder (§2). Verified with 4.2.0.83. Its SpinVideo component is needed only for the `avi-mjpeg`, `avi-raw` and `mp4-h264` formats |
+| Spinnaker SDK or SpinView **with its .NET components** | **Required**, in any folder (§2). Verified with 4.2.0.83. Its SpinVideo component is needed only for the `avi-mjpeg`, `avi-raw` and `mp4-h264` formats; the default `avi-mjpeg-mt` does not use it |
 | C# compiler `csc.exe` (.NET Framework 4.x) | Ships with Windows; `spincam.setup` uses it once to build the acquisition engine |
 | FLIR / Point Grey USB3 Vision cameras | Developed on 2 × Chameleon3 CM3-U3-13Y3M. Per-frame embedded TTL needs the camera's FRAME_INFO register; otherwise use `TtlSource = 'polled'` (§5) |
 | FlyCapture2 | Not used. It can stay installed, but do not switch the cameras to its driver |
@@ -107,8 +107,8 @@ Each may point to the Spinnaker root, its `bin64` folder, or the folder holding
 * The acquisition engine is **compiled on your machine against the installed** Spinnaker
   assemblies. After a Spinnaker update, or when spincam is pointed at another folder, it is
   rebuilt automatically the next time it loads; restart MATLAB afterwards.
-* Without `SpinVideoNET` the engine is built without SpinVideo: `raw`, `matlab-avi`,
-  `matlab-mjpeg` and `none` still work, while `avi-mjpeg`, `avi-raw` and `mp4-h264` raise
+* Without `SpinVideoNET` the engine is built without SpinVideo: `avi-mjpeg-mt`, `raw`,
+  `matlab-avi`, `matlab-mjpeg` and `none` still work, while `avi-mjpeg`, `avi-raw` and `mp4-h264` raise
   `spincam:recorder:noSpinVideo`.
 * **Verified with Spinnaker 4.2.0.83 only.** `spincam.setup` notes when another version is
   installed. If the engine build fails, the compiler message names the missing .NET member
@@ -217,7 +217,7 @@ The viewer connects all attached cameras, sets them to **100 fps**, names them `
 | Session | today, `yyyyMMdd` | Creates `<subject>\<session>`. Leave it empty to save directly in the subject folder. |
 | File name | follows *Subject* | Middle part of every file name. Typing your own text stops it following the subject; clear it for `<camera>_<date_time>`. |
 | Append _date_time | on | Adds the recording start time (`yyyyMMdd_HHmmss`) so repeated recordings never overwrite each other. |
-| Format | `avi-mjpeg` | Video format (see [§8 `VideoRecorder`](#spincamvideorecorder-handle)). |
+| Format | `avi-mjpeg-mt` | Video format (see [§8 `VideoRecorder`](#spincamvideorecorder-handle)). |
 | Files | – | Read-only preview of the folder and names the next recording will create. |
 
 Typical session: check that each tile shows the view its name says → type the subject →
@@ -406,7 +406,7 @@ cm = spincam.CameraManager();              % 100 fps, cameras named topview / si
 cm.connect();
 cm.setProperty('ExposureTime', 4000);
 cm.configureSync('passive', 'TtlLine', 'Line0');    % Bpod BNC1 -> yellow/brown
-cm.Recorder.Format = 'avi-mjpeg';          % native encoder: safe while MATLAB is blocked
+cm.Recorder.Format = 'avi-mjpeg-mt';       % native, multi-core encoder: safe while MATLAB is blocked
 cm.startRecording(cm.sessionFolder(subject, session), subject);
 cleanup = onCleanup(@() stopCameras(cm));  % runs even if the protocol errors
 
@@ -486,7 +486,7 @@ unless `cm.Overwrite = true`.
 
 | File | Content |
 |---|---|
-| `<stem>.avi` / `<stem>.mp4` | SpinVideo formats (`avi-mjpeg`, `avi-raw`, `mp4-h264`). SpinVideo itself always writes `<stem>-0000.avi`; when the recording stops, spincam renames it to `<stem>.avi` so it matches the CSV. With `MaxFileSizeMB > 0`, the numbered segments (`-0000`, `-0001`, …) are kept. The `matlab-*` formats write `<stem>.avi` directly. The final names are in `summary.Cameras(k).VideoFiles`. |
+| `<stem>.avi` / `<stem>.mp4` | `avi-mjpeg-mt` writes `<stem>.avi` directly, as one OpenDML (AVI 2.0) file of any length. SpinVideo formats (`avi-mjpeg`, `avi-raw`, `mp4-h264`). SpinVideo itself always writes `<stem>-0000.avi`; when the recording stops, spincam renames it to `<stem>.avi` so it matches the CSV. With `MaxFileSizeMB > 0`, the numbered segments (`-0000`, `-0001`, …) are kept. The `matlab-*` formats write `<stem>.avi` directly. The final names are in `summary.Cameras(k).VideoFiles`. |
 | `<stem>.raw` + `<stem>.raw.json` | `'raw'` format: 8-bit frames concatenated row-major (frame *i*, 0-based, starts at byte *i*·W·H), with geometry and frame rate in the JSON sidecar. Read it with `spincam.io.RawVideoReader`; convert it with `spincam.io.rawToAvi`. |
 | `<stem>.csv` | One row per frame received while recording (schema below). |
 | `<base>_events.csv` | `HostTime_s, HostTimestamp_datetime, Event, Value` rows from `cm.logEvent`, plus `RecordingStart` / `RecordingStop`. |
@@ -596,18 +596,21 @@ Friendly property names (aliases in parentheses):
 
 | Property | Default | Values |
 |---|---|---|
-| `Format` | `'avi-mjpeg'` | `'avi-mjpeg'`, `'avi-raw'`, `'mp4-h264'` (SpinVideo, native threads); `'raw'` (lossless 8-bit, native thread, disk speed); `'matlab-avi'` (VideoWriter *Grayscale AVI*, bit-exact 8-bit), `'matlab-mjpeg'` (VideoWriter *Motion JPEG AVI*); `'none'` (CSV only) |
-| `Quality` | 75 | MJPEG quality 1–100 |
+| `Format` | `'avi-mjpeg-mt'` | `'avi-mjpeg-mt'` (MJPEG AVI encoded by the engine on `EncoderThreads` cores per camera; no SpinVideo needed); `'avi-mjpeg'`, `'avi-raw'`, `'mp4-h264'` (SpinVideo, one native writer thread per camera); `'raw'` (lossless 8-bit, native thread, disk speed); `'matlab-avi'` (VideoWriter *Grayscale AVI*, bit-exact 8-bit), `'matlab-mjpeg'` (VideoWriter *Motion JPEG AVI*); `'none'` (CSV only) |
+| `JpegQuality` | 30 | `avi-mjpeg-mt` quality 1–100 on the IJG/libjpeg scale (MATLAB `imwrite`'s). 30 gives the file size of SpinVideo's `Quality` 75 on real frames and is closer to the sensor values (§9) |
+| `EncoderThreads` | 0 | `avi-mjpeg-mt` encoder threads per camera; 0 = logical processors / 4, between 2 and 8. `Recorder.encoderThreadCount()` gives the number used |
+| `Quality` | 75 | MJPEG quality 1–100 of `avi-mjpeg` (SpinVideo) and `matlab-mjpeg`; not the same scale as `JpegQuality` |
 | `H264BitrateMbps`, `H264Crf` | 8, 23 | H.264 settings |
 | `FrameRate` | `[]` | Container frame rate. `[]` uses the camera's `AcquisitionFrameRate` (30 in triggered mode if unknown) |
 | `MaxFileSizeMB` | 0 | 0 = no split (SpinVideo formats) |
+| `AviRiffSizeMB` | 0 | `avi-mjpeg-mt` OpenDML segment size; 0 = 1024. For tests only |
 | `QueueSeconds` | 10 | Writer queue depth, in seconds of video, before frames are dropped (flagged) |
 | `CsvExtended` | `true` | Write the extended CSV columns |
 | `ScrubEmbeddedPixels` | `true` | Restore the 8 embedded-data pixels in the video |
 
 The `matlab-*` formats are drained by a MATLAB timer. They are **not** suitable while
-MATLAB is blocked (for example inside Bpod `RunStateMachine`); use the SpinVideo formats
-or `raw` there. The SpinVideo formats need `SpinVideoNET` in the Spinnaker installation;
+MATLAB is blocked (for example inside Bpod `RunStateMachine`); use `avi-mjpeg-mt`, the
+SpinVideo formats or `raw` there. The SpinVideo formats need `SpinVideoNET` in the Spinnaker installation;
 without it `startRecording` raises `spincam:recorder:noSpinVideo`.
 
 > ⚠ SpinVideo's "uncompressed" AVI (`'avi-raw'`) is stored as **I420 (yuv420p)**, not
@@ -657,10 +660,10 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
 
 | Goal | Settings |
 |---|---|
-| Long sessions (hours), full frame | **Defaults**: 100 fps, `avi-mjpeg` |
-| 120 fps | Crop to 1024×900 or smaller (`setRoi`), `avi-mjpeg` |
-| 150 fps (camera maximum) | Crop to 960×720 or smaller, `avi-mjpeg` |
-| Bit-exact pixels, or full frame above 100 fps, short recordings | `raw`, then `spincam.io.rawToAvi` |
+| Long sessions (hours), full frame | **Defaults**: 100 fps, `avi-mjpeg-mt` |
+| 120 fps, full frame | `avi-mjpeg-mt` (120 fps is the most two full-frame cameras deliver on one USB 3.0 controller) |
+| 150 fps (camera maximum) | Crop to 960×720 or smaller (USB bandwidth), `avi-mjpeg-mt` |
+| Bit-exact pixels, short recordings | `raw`, then `spincam.io.rawToAvi` |
 
 **Limits**
 
@@ -668,20 +671,24 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
   120 fps; at 150 fps 6–44 % of frames are skipped on the cameras. Crop, or use separate
   controllers. Missed frames are always reported in `FramesMissedBefore`, and `CameraManager`
   warns (`spincam:manager:usbBandwidth`) above ≈ 340 MB/s combined.
-* **MJPEG encoder.** On real frames `avi-mjpeg` encodes ≈ 104 fps per camera at full frame,
-  which is why the default is 100 fps. Speed scales with the pixel count: 1024×900 keeps up at
-  120 fps, and 960×720 at 150 fps. `startRecording` warns
-  (`spincam:recorder:encoderMayNotKeepUp`) when the frame rate exceeds that estimate. Frames
-  that overflow the writer queue (`QueueSeconds`) are flagged (`WriterDropFlag`), never lost
-  silently.
+* **MJPEG encoders.** `avi-mjpeg-mt` encodes each camera's frames on several threads
+  (≈ 180 fps per thread at full frame, scaling with threads), so its writer queue stays flat at
+  120 fps full frame even with one thread and MATLAB busy drawing. SpinVideo's `avi-mjpeg`
+  encodes one frame at a time at ≈ 104 fps per camera, only 4 % above the 100 fps default: with
+  a live preview and a busy MATLAB its queue grew by 1–2 frames/s and would overflow within
+  about 15 minutes. Use it only cropped (1024×900 at 120 fps, 960×720 at 150 fps).
+  `startRecording` warns (`spincam:recorder:encoderMayNotKeepUp`) when the frame rate exceeds
+  the measured capacity for the format, frame size and threads. Frames that overflow the writer
+  queue (`QueueSeconds`) are flagged (`WriterDropFlag`), never lost silently.
 * **`raw`** keeps up at any camera rate (disk speed) and is bit-exact, but needs ≈ 0.9 TB per
   hour at 100 fps.
-* A 30-minute recording with the defaults had 0 missed frames, 0 writer drops, a writer queue of
-  at most 3 frames and flat MATLAB memory.
+* A 17.5-minute Bpod session with the defaults (camera window open) had 0 missed frames, 0 writer
+  drops and a writer queue of at most 2 frames; a 30-minute passive recording with SpinVideo
+  `avi-mjpeg` had flat MATLAB memory.
 
-**Long sessions: disk, RAM and CPU** (two cameras, full frame, 100 fps, `avi-mjpeg`)
+**Long sessions: disk, RAM and CPU** (two cameras, full frame, 100 fps, `avi-mjpeg-mt`)
 
-* **Disk:** ≈ 6–7 MB/s together, i.e. ≈ 25 GB per hour or ≈ 100–150 GB for a 4–6 h session
+* **Disk:** ≈ 7.5 MB/s together, i.e. ≈ 27 GB per hour or ≈ 110–165 GB for a 4–6 h session
   (depends on the scene). The CSV frame logs add ≈ 0.7 GB per 6 h. `raw` at 100 fps would need
   ≈ 0.9 TB per hour, which is why it only suits short recordings.
 * **Converting `raw`:** `spincam.io.rawToAvi(file, '', 'Profile', 'Motion JPEG AVI', 'Quality', 90)`
@@ -690,8 +697,8 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
 * **RAM:** frames are buffered only while the encoder is behind. The queue is capped by
   `QueueSeconds` (10 s ≈ 1.25 GB per camera at full frame, 100 fps) and `MaxQueueMB` (2 GB);
   steady state uses < 200 MB.
-* **CPU:** one encoder thread per camera (about one core each) plus light grab threads, all
-  outside MATLAB, so Bpod's `RunStateMachine` does not affect recording. Running the viewer in a
+* **CPU:** about half a core of JPEG encoding per camera at 100 fps, spread over its encoder
+  threads, plus a muxer and grab threads per camera, all outside MATLAB, so Bpod's `RunStateMachine` does not affect recording. Running the viewer in a
   separate MATLAB session from Bpod keeps its preview responsive.
 
 **Timing**

@@ -106,6 +106,26 @@ classdef CameraManagerMockTest < matlab.unittest.TestCase
             tc.verifyEqual(cameras(2).Name, 'sideview');
         end
 
+        function defaultFormatEncodesOnSeveralCores(tc)
+            cm = tc.Manager;
+            cm.connect();
+            tc.verifyEqual(cm.Recorder.Format, 'avi-mjpeg-mt');
+            cm.Recorder.EncoderThreads = 3;
+            cm.startRecording(tc.OutDir, 'mt');
+            pause(1.0);
+            s = cm.stopRecording();
+            for k = 1:2
+                c = s.Cameras(k);
+                tc.verifyEmpty(c.Error);
+                tc.verifyEqual(c.VideoFiles, {strrep(c.CsvFile, '.csv', '.avi')});
+                tc.verifyGreaterThan(c.FramesWritten, 0);
+                tc.verifyEqual(c.FramesWritten, c.FramesLogged);
+                tc.verifyEqual(VideoReader(c.VideoFiles{1}).NumFrames, c.FramesWritten);
+            end
+            session = jsondecode(fileread(s.SessionFile));
+            tc.verifyEqual(session.Recorder.EncoderThreads, 3);
+        end
+
         function fileNamesCombineCameraNameFileNameAndDateTime(tc)
             cm = tc.Manager;
             cm.connect();

@@ -21,7 +21,7 @@ cm.configureSync('passive', 'TtlLine', 'Line0');
 % Mode B: cm.configureSync('triggered', 'TriggerType', 'frame', 'TriggerActivation', 'RisingEdge');
 % Mode C: cm.configureSync('strobe', 'StrobeLine', 'Line1', 'StrobeEveryN', 1);
 
-cm.Recorder.Format = 'avi-mjpeg';
+cm.Recorder.Format = 'avi-mjpeg-mt';
 plan = cm.startRecording(cm.sessionFolder(subject, session), subject);
 fprintf('Recording to %s ...\n', plan.Folder);
 for k = 1:10

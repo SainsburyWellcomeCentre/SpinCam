@@ -10,6 +10,7 @@ arguments
     opts.Frames (1,1) double {mustBeInteger, mustBePositive} = 300
     opts.FrameRate (1,1) double {mustBePositive} = 150
     opts.Quality (1,1) double {mustBeInteger, mustBeInRange(opts.Quality, 1, 100)} = 75
+    opts.JpegQuality (1,1) double {mustBeInteger, mustBeInRange(opts.JpegQuality, 1, 100)} = 30
     opts.Folder (1,:) char = fullfile(spincam.internal.NativeEngine.projectRoot(), 'tests', '_output', 'benchmark')
     opts.KeepFiles (1,1) logical = false
 end
@@ -18,7 +19,8 @@ if ~isfolder(opts.Folder)
     mkdir(opts.Folder);
 end
 native = {'raw', SpinCam.VideoFormat.Raw; 'avi-raw', SpinCam.VideoFormat.AviUncompressed; ...
-    'avi-mjpeg', SpinCam.VideoFormat.AviMjpg; 'mp4-h264', SpinCam.VideoFormat.Mp4H264};
+    'avi-mjpeg-mt', SpinCam.VideoFormat.AviMjpgParallel; 'avi-mjpeg', SpinCam.VideoFormat.AviMjpg; ...
+    'mp4-h264', SpinCam.VideoFormat.Mp4H264};
 formats = [native(:, 1)', {'matlab-avi', 'matlab-mjpeg'}];
 n = numel(formats);
 Format = formats(:); EncodeFps = nan(n, 1); MBps = nan(n, 1); FileMB = nan(n, 1);
@@ -27,8 +29,12 @@ Sustainable = false(n, 1); Note = repmat({''}, n, 1);
 for k = 1:size(native, 1)
     stem = fullfile(opts.Folder, ['bench_' strrep(native{k, 1}, '-', '_')]);
     try
+        quality = opts.Quality;
+        if strcmp(native{k, 1}, 'avi-mjpeg-mt')
+            quality = opts.JpegQuality;
+        end
         r = jsondecode(char(SpinCam.Engine.BenchmarkWriter(stem, native{k, 2}, int32(opts.Width), ...
-            int32(opts.Height), int32(opts.Frames), opts.FrameRate, int32(opts.Quality))));
+            int32(opts.Height), int32(opts.Frames), opts.FrameRate, int32(quality))));
         EncodeFps(k) = r.fps;
         FileMB(k) = r.bytes / 2^20;
         MBps(k) = r.bytes / 2^20 / r.seconds;

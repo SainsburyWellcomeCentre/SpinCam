@@ -14,7 +14,7 @@ cm = spincam.CameraManager();              % 100 fps, cameras named topview / si
 cm.connect();
 cm.setProperty('ExposureTime', 4000);
 cm.configureSync('passive', 'TtlLine', 'Line0');
-cm.Recorder.Format = 'avi-mjpeg';          % native encoder: safe while MATLAB is blocked
+cm.Recorder.Format = 'avi-mjpeg-mt';       % native, multi-core encoder: safe while MATLAB is blocked
 cm.startRecording(cm.sessionFolder(subject, session), subject);
 cleanup = onCleanup(@() stopCameras(cm));  % runs even if the protocol errors or is stopped
 

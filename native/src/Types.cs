@@ -24,7 +24,9 @@ namespace SpinCam
         /// <summary>Frames are queued for MATLAB (VideoWriter) instead of being encoded natively.</summary>
         MatlabExport = 4,
         /// <summary>Lossless 8-bit frames appended to a .raw file with a JSON sidecar.</summary>
-        Raw = 5
+        Raw = 5,
+        /// <summary>MJPEG AVI (OpenDML) encoded by the engine on several threads (ParallelMjpegSink).</summary>
+        AviMjpgParallel = 6
     }
 
     public enum RecordGate
@@ -72,6 +74,10 @@ namespace SpinCam
         public int H264BitrateBps = 8000000;
         public int H264Crf = 23;
         public int MaxFileSizeMB = 0;
+        /// <summary>AviMjpgParallel: JPEG encoder threads per camera; 0 picks ProcessorCount / 4 (2 to 8).</summary>
+        public int EncoderThreads = 0;
+        /// <summary>AviMjpgParallel: size of each OpenDML RIFF segment in MB; 0 uses 1024 (tests make it small).</summary>
+        public int AviRiffSizeMB = 0;
         public int QueueCapacityFrames = 1500;
         public int ExportCapacityFrames = 1500;
         public RecordGate Gate = RecordGate.None;

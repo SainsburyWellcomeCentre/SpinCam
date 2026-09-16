@@ -142,8 +142,8 @@ report.SpinnakerToolset = s.Toolset;
 report.SpinVideo = ~isempty(s.SpinVideoNet);
 say('OK', 'Spinnaker assemblies: %s (%s, found via %s)', s.Bin, s.Toolset, s.Source);
 if ~report.SpinVideo
-    note(['SpinVideoNET not found: formats avi-mjpeg, avi-raw and mp4-h264 are unavailable; raw, ' ...
-        'matlab-avi and matlab-mjpeg still work.']);
+    note(['SpinVideoNET not found: formats avi-mjpeg, avi-raw and mp4-h264 are unavailable; avi-mjpeg-mt, ' ...
+        'raw, matlab-avi and matlab-mjpeg still work.']);
 end
 if E.isLoaded() && ~strcmpi(E.loadedBin(), s.Bin)
     note('This MATLAB session already loaded Spinnaker from %s; restart MATLAB to use %s.', E.loadedBin(), s.Bin);

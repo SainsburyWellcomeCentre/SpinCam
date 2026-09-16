@@ -98,6 +98,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
 | Default-settings soak | 30 min, both cameras, 1280×1024 @ 100 fps (node 100.058), `avi-mjpeg`, passive: 179 597 / 179 596 frames, 0 missed, 0 writer drops, queue peak 3, fps 99.6–99.8, hw interval 10036 µs (max 10041), MATLAB memory flat 2.0 GB, videos 5.42 + 6.74 GB (≈ 24 GB/h together), `VideoReader.NumFrames` = CSV rows |
 | Frame-rate quantization | Writing 120 reads 120.0856; writing 120.0856 reads **120.1772**. Restore frame rates by writing the originally *requested* value, not the read-back |
 | Cropped / 100 fps MJPEG (real frames) | Both cameras, 20 s each, queue growth per camera: 1280×1024 @ 100 fps **0** (hw interval 10036 µs = 99.64 fps; 2.9–3.7 MB/s per camera); 1024×900 @ 120 fps **0** (2.6–3.1 MB/s); 960×720 @ 150 fps 0 to +0.4 frames/s (2.3–2.7 MB/s); all 0 missed, 0 writer drops, embedded GPIO decoded (8 / 12) |
+| Parallel MJPEG (`avi-mjpeg-mt`, 2026-09-16) | `JpegEncoder` 1280×1024: 5.4 ms/frame on one core (184 fps synthetic), 364/729/1257/1642 fps on 2/4/8/12 threads; PSNR equal to MATLAB `imwrite` Q75 on the same frame. Real frames, both cameras, camera window open and MATLAB drawing: queue peak ≤ 2 at 100 and 120 fps with **one** thread per camera and with the automatic 7. Calibration on 60 real frames per camera against a lossless `raw` clip: SpinVideo Q75 32.5/40.4 KB per frame at PSNR 28.2/29.5 dB (sideview/topview); IJG Q30 32.6/42.4 KB at 36.7/34.4 dB. Media Foundation (`VideoReader`) reads OpenDML files with AVIX segments, frame count = CSV rows |
 | Spinnaker error codes | −1011 timeout (`GetNextImage`), −2006 GenICam AccessException, −1008 bad port address |
 
 ## 4. Architecture decisions
@@ -154,9 +155,9 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     applied in `connect()` to each newly opened camera (manual exposure longer than the frame
     period is shortened first, because the CM3 caps the frame rate by exposure).
     `'FrameRate', []` leaves cameras untouched (hardware tests use this so the settings
-    snapshot is the camera's own state). The default format stays `avi-mjpeg`: 100 fps full
-    frame keeps the writer queue flat, and `raw` (~0.9 TB/h) does not fit multi-hour sessions.
-    Higher rates are reached by cropping, not by changing the default.
+    snapshot is the camera's own state). `raw` (~0.9 TB/h) does not fit multi-hour sessions.
+    The default format is `avi-mjpeg-mt` since 2026-09-16 (decision 17); before that it was
+    SpinVideo `avi-mjpeg`, whose single-threaded encoder is only 4 % faster than 100 fps.
 15. **Crop = GenICam ROI through `CameraDevice.setRoi`** (`[x y w h]`, `'Center'`). Order:
     offsets to 0, then Width/Height (rounded **down** to increments), then offsets (clamped to
     the sensor). `applySettings` restores crops through `setRoi`, so any crop can replace any
@@ -174,6 +175,18 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     recording). SpinVideo option members and `SetMaximumFileSize` are set by reflection because
     their types differ between releases. Only 4.2.0.83 is verified
     (`NativeEngine.VerifiedSpinnakerVersion`); update it after a hardware run on another version.
+17. **Multi-core MJPEG `avi-mjpeg-mt` is the default format** (user request 2026-09-16, after
+    SpinVideo MJPEG's writer queue grew 1–2 frames/s at 100 fps full frame with a live preview
+    and a busy MATLAB, i.e. writer drops after ~15 min). The engine encodes JPEG itself
+    (`JpegEncoder`, one per `EncoderThreads` worker, 0 = ProcessorCount/4 clamped 2–8) and a
+    muxer writes an OpenDML AVI (`AviWriter`) in index order (`ParallelMjpegSink`). The sink
+    takes buffer ownership and blocks `Write` at `2 × threads` in flight, so overload still shows
+    up as writer-queue growth and flagged writer drops. Output is YCbCr 4:2:0 with constant
+    chroma, like ffmpeg's yuvj420p, so Media Foundation/ffmpeg readers work. Quality is
+    `Recorder.JpegQuality` on the IJG scale (default 30 = SpinVideo Q75's file size on real
+    frames); SpinVideo's `Quality` scale is different and stays for `avi-mjpeg`. No SpinVideo
+    dependency: works in `NO_SPINVIDEO` builds. SpinVideo formats remain available.
+
 14. **Viewer sync fields follow `SyncController.optionsFor(mode, ttlSource)`**. Adding a sync
     option means: property on `SyncController`, entry in `optionsFor`, a field in
     `LiveViewer.buildSyncTab`, a row in README §5's field reference. Pending (unapplied)

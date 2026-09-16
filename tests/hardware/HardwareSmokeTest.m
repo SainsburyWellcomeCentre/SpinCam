@@ -98,7 +98,7 @@ classdef HardwareSmokeTest < matlab.unittest.TestCase
             cm.setProperty('FrameRate', 100);
             cm.setProperty('ExposureTime', 5000);
             cm.configureSync('passive', 'TtlLine', 'Line0');
-            cm.Recorder.Format = 'avi-mjpeg';
+            cm.Recorder.Format = 'avi-mjpeg-mt';
             plan = cm.startRecording(tc.OutDir, 'passive');
             pause(3);
             s = cm.stopRecording();
@@ -118,6 +118,28 @@ classdef HardwareSmokeTest < matlab.unittest.TestCase
                 tc.verifyEqual(reader.NumFrames, c.FramesWritten);
             end
             tc.verifyTrue(isfile(plan.EventsFile) && isfile(plan.SessionFile));
+        end
+
+        function parallelMjpegKeepsUpAtFullFrame120(tc)
+            % SpinVideo MJPEG falls behind above ~104 fps at full frame; the multi-core encoder
+            % must not. 120 fps is the most both cameras deliver on one USB 3.0 controller.
+            cm = tc.Manager;
+            original = cm.getRoi();
+            tc.addTeardown(@() restoreRoi(cm, original));
+            cm.resetRoi();
+            cm.setProperty('FrameRate', 120);
+            cm.configureSync('passive');
+            cm.Recorder.Format = 'avi-mjpeg-mt';
+            cm.startRecording(tc.OutDir, 'mt120');
+            pause(5);
+            s = cm.stopRecording();
+            for c = s.Cameras
+                tc.verifyEmpty(c.Error);
+                tc.verifyEqual(c.WriterDrops, 0);
+                tc.verifyLessThan(c.QueuePeak, 60, 'The writer queue does not build up');
+                tc.verifyEqual(c.FramesWritten, c.FramesLogged);
+                tc.verifyEqual(VideoReader(c.VideoFiles{1}).NumFrames, c.FramesWritten);
+            end
         end
 
         function cropRecordsSmallerFramesWithEmbeddedTtl(tc)

@@ -8,7 +8,7 @@ cm.DataRoot = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'tests', '_o
 
 cm.connect();                                   % cameras named topview / sideview
 cm.configureSync('passive', 'TtlLine', 'Line0');
-cm.Recorder.Format = 'avi-mjpeg';
+cm.Recorder.Format = 'avi-mjpeg-mt';
 
 plan = cm.startRecording(cm.sessionFolder('mockmouse', 'demo'), 'mockmouse');
 for trial = 1:3

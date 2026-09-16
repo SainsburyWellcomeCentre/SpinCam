@@ -1,7 +1,10 @@
 classdef VideoRecorder < handle
     %VIDEORECORDER Video and CSV output settings for spincam recordings.
     %   Formats:
-    %     'avi-mjpeg'    SpinVideo MJPEG AVI, encoded on the engine's writer thread
+    %     'avi-mjpeg-mt' MJPEG AVI (OpenDML) encoded by the engine on EncoderThreads cores per
+    %                    camera; keeps up with full frames at 150 fps and needs no SpinVideo
+    %     'avi-mjpeg'    SpinVideo MJPEG AVI, encoded on the engine's writer thread (~104 fps
+    %                    per camera at 1280x1024)
     %     'avi-raw'      SpinVideo uncompressed AVI
     %     'mp4-h264'     SpinVideo H.264 MP4
     %     'raw'          lossless 8-bit frames (.raw + .raw.json) at disk speed; read with
@@ -13,13 +16,24 @@ classdef VideoRecorder < handle
     %   them while MATLAB is blocked (e.g. Bpod RunStateMachine).
 
     properties
-        Format (1,:) char = 'avi-mjpeg'
+        Format (1,:) char = 'avi-mjpeg-mt'
+        %QUALITY MJPEG quality of SpinVideo ('avi-mjpeg') and MATLAB ('matlab-mjpeg') writers.
         Quality (1,1) double {mustBeInteger, mustBeInRange(Quality, 1, 100)} = 75
+        %JPEGQUALITY Quality of 'avi-mjpeg-mt', on the IJG/libjpeg scale (MATLAB imwrite's).
+        %   30 gives SpinVideo Quality 75's file size on the rig's frames and is 5-8 dB closer
+        %   to the raw frames (docs/performance.md); the scales are not the same.
+        JpegQuality (1,1) double {mustBeInteger, mustBeInRange(JpegQuality, 1, 100)} = 30
         H264BitrateMbps (1,1) double {mustBePositive} = 8
         H264Crf (1,1) double {mustBeInteger, mustBeInRange(H264Crf, 0, 51)} = 23
         %FRAMERATE Container frame rate; [] uses the camera's AcquisitionFrameRate.
         FrameRate double {mustBeScalarOrEmpty} = []
         MaxFileSizeMB (1,1) double {mustBeInteger, mustBeNonnegative} = 0
+        %ENCODERTHREADS JPEG encoder threads per camera for 'avi-mjpeg-mt'; 0 = automatic
+        %   (logical processors / 4, from 2 to 8).
+        EncoderThreads (1,1) double {mustBeInteger, mustBeInRange(EncoderThreads, 0, 64)} = 0
+        %AVIRIFFSIZEMB Size of each OpenDML RIFF segment of an 'avi-mjpeg-mt' file; 0 = 1024.
+        %   Only tests need to change it (to cross the RIFF boundary in a short recording).
+        AviRiffSizeMB (1,1) double {mustBeInteger, mustBeNonnegative} = 0
         %QUEUESECONDS Writer queue depth in seconds of video (capped by MaxQueueMB).
         QueueSeconds (1,1) double {mustBePositive} = 10
         MaxQueueMB (1,1) double {mustBePositive} = 2048
@@ -29,12 +43,14 @@ classdef VideoRecorder < handle
     end
 
     properties (Constant)
-        Formats = {'avi-mjpeg', 'avi-raw', 'mp4-h264', 'raw', 'matlab-avi', 'matlab-mjpeg', 'none'}
+        Formats = {'avi-mjpeg-mt', 'avi-mjpeg', 'avi-raw', 'mp4-h264', 'raw', 'matlab-avi', 'matlab-mjpeg', 'none'}
         % Encoder capacity (frames/s per camera at 1280x1024; scaled by pixel count for crops).
         % avi_mjpeg and mp4_h264: real camera frames, 2 cameras at 120 fps, dark scene with 18 dB
         % gain (2026-09-15); synthetic frames overstate both (116 / 121). Others: synthetic frames
         % from spincam.tools.benchmarkWriters. Development rig: i7-14700K, NVMe.
-        MeasuredCapacity = struct('avi_mjpeg', 104, 'avi_raw', 110, 'mp4_h264', 70, 'matlab_mjpeg', 85)
+        % avi_mjpeg_mt is per encoder thread (real frames, both cameras recording, 2026-09-16).
+        MeasuredCapacity = struct('avi_mjpeg', 104, 'avi_raw', 110, 'mp4_h264', 70, 'matlab_mjpeg', 85, ...
+            'avi_mjpeg_mt', 170)
     end
 
     properties (SetAccess = private)
@@ -59,7 +75,7 @@ classdef VideoRecorder < handle
 
         function tf = isNative(obj)
             %ISNATIVE Written on the engine's threads (safe while MATLAB is blocked).
-            tf = obj.isSpinVideo() || strcmp(obj.Format, 'raw');
+            tf = obj.isSpinVideo() || any(strcmp(obj.Format, {'raw', 'avi-mjpeg-mt'}));
         end
 
         function tf = isSpinVideo(obj)
@@ -73,6 +89,9 @@ classdef VideoRecorder < handle
                 return
             end
             capacity = obj.MeasuredCapacity.(key) * (1280 * 1024) / max(1, width * height);
+            if strcmp(obj.Format, 'avi-mjpeg-mt')
+                capacity = capacity * obj.encoderThreadCount();
+            end
             if fps > capacity
                 warning('spincam:recorder:encoderMayNotKeepUp', ...
                     ['Camera %s at %.0f fps may exceed %s encoding speed (~%.0f fps measured at this frame ' ...
@@ -80,6 +99,11 @@ classdef VideoRecorder < handle
                     'rate, crop the image (setRoi), or use Format ''raw''.'], serial, fps, obj.Format, capacity, ...
                     obj.QueueSeconds);
             end
+        end
+
+        function n = encoderThreadCount(obj)
+            %ENCODERTHREADCOUNT Encoder threads per camera an 'avi-mjpeg-mt' recording uses.
+            n = double(SpinCam.Engine.MjpegEncoderThreads(int32(obj.EncoderThreads)));
         end
 
         function tf = isMatlab(obj)
@@ -158,10 +182,16 @@ classdef VideoRecorder < handle
             options.CsvPath = p.CsvFile;
             options.Format = obj.netFormat();
             options.FrameRate = fps;
-            options.MjpgQuality = int32(obj.Quality);
+            if strcmp(obj.Format, 'avi-mjpeg-mt')
+                options.MjpgQuality = int32(obj.JpegQuality);
+            else
+                options.MjpgQuality = int32(obj.Quality);
+            end
             options.H264BitrateBps = int32(round(obj.H264BitrateMbps * 1e6));
             options.H264Crf = int32(obj.H264Crf);
             options.MaxFileSizeMB = int32(obj.MaxFileSizeMB);
+            options.EncoderThreads = int32(obj.EncoderThreads);
+            options.AviRiffSizeMB = int32(obj.AviRiffSizeMB);
             options.QueueCapacityFrames = int32(capacity);
             options.ExportCapacityFrames = int32(capacity);
             options.CsvExtended = obj.CsvExtended;
@@ -284,7 +314,7 @@ classdef VideoRecorder < handle
 
         function s = toStruct(obj)
             s = struct();
-            names = {'Format', 'Quality', 'H264BitrateMbps', 'H264Crf', 'FrameRate', 'MaxFileSizeMB', ...
+            names = {'Format', 'Quality', 'JpegQuality', 'H264BitrateMbps', 'H264Crf', 'FrameRate', 'MaxFileSizeMB', 'EncoderThreads', ...
                 'QueueSeconds', 'MaxQueueMB', 'CsvExtended', 'ScrubEmbeddedPixels'};
             for k = 1:numel(names)
                 s.(names{k}) = obj.(names{k});
@@ -299,6 +329,8 @@ classdef VideoRecorder < handle
     methods (Access = private)
         function e = netFormat(obj)
             switch obj.Format
+                case 'avi-mjpeg-mt'
+                    e = SpinCam.VideoFormat.AviMjpgParallel;
                 case 'avi-mjpeg'
                     e = SpinCam.VideoFormat.AviMjpg;
                 case 'avi-raw'
