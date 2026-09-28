@@ -41,6 +41,8 @@ namespace SpinCam
         private long _framesReceived;
         private long _framesMissed;
         private long _framesIncomplete;
+        private long _timestampCorrections;
+        private readonly TimestampGuard _timestampGuard = new TimestampGuard();
         private long _grabTimeouts;
         private long _lastFrameId = -1;
         private long _lastTimestampNs;
@@ -127,6 +129,8 @@ namespace SpinCam
                 Interlocked.Exchange(ref _framesReceived, 0);
                 Interlocked.Exchange(ref _framesMissed, 0);
                 Interlocked.Exchange(ref _framesIncomplete, 0);
+                Interlocked.Exchange(ref _timestampCorrections, 0);
+                _timestampGuard.Reset();
                 Interlocked.Exchange(ref _grabTimeouts, 0);
                 Interlocked.Exchange(ref _lastFrameId, -1);
                 Interlocked.Exchange(ref _polledLineStatus, -1);
@@ -337,6 +341,7 @@ namespace SpinCam
             sb.Append(",\"framesReceived\":").Append(Json.Num(Interlocked.Read(ref _framesReceived)));
             sb.Append(",\"framesMissed\":").Append(Json.Num(Interlocked.Read(ref _framesMissed)));
             sb.Append(",\"framesIncomplete\":").Append(Json.Num(Interlocked.Read(ref _framesIncomplete)));
+            sb.Append(",\"timestampCorrections\":").Append(Json.Num(Interlocked.Read(ref _timestampCorrections)));
             sb.Append(",\"grabTimeouts\":").Append(Json.Num(Interlocked.Read(ref _grabTimeouts)));
             sb.Append(",\"fps\":").Append(Json.Num(_fps));
             sb.Append(",\"lastFrameId\":").Append(Json.Num(Interlocked.Read(ref _lastFrameId)));
@@ -373,6 +378,12 @@ namespace SpinCam
                         continue;
                     }
                     Interlocked.Increment(ref _framesReceived);
+                    // Before anything reads the timestamp: see TimestampGuard.
+                    frame.TimestampCorrected = _timestampGuard.Apply(frame);
+                    if (frame.TimestampCorrected)
+                    {
+                        Interlocked.Increment(ref _timestampCorrections);
+                    }
 
                     long missed = 0;
                     if (lastId >= 0 && frame.FrameId > lastId + 1)

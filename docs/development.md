@@ -20,8 +20,8 @@ cd /mnt/c/Users/harrislab/Documents/MATLAB/SpinCam
 
 | Suite | Needs | Covers |
 |---|---|---|
-| `tests/unit` (69) | MATLAB only | FRAME_INFO bit maths (including bytes captured from the real cameras), GPIO decoding, strobe pattern registers, path conversion and name cleaning, mock node-map rules, property side effects and clamping, frame-rate restore under camera quantization, crop ordering/rounding/restore, sync-mode node/register write order and validation, per-mode sync options, finding Spinnaker in different install layouts (fake files) |
-| `tests/integration` (44) | Windows + .NET + Spinnaker assemblies | C# engine with synthetic cameras: CSV schema, TTL versus ground truth, drop, incomplete and writer-overflow flags, TTL start gate, lossless `raw` read-back, exact video-index ↔ CSV-row mapping, SpinVideo, multi-core MJPEG (frame order across encoder threads, OpenDML segments, edge padding) and MATLAB `VideoWriter` output; engine build without SpinVideo and build stamp; `CameraManager` end-to-end including file naming, session folders, camera names, default frame rate, cropped recording and overwrite protection; `LiveViewer` recording into `<root>\<subject>\<session>`, crop from the Camera tab, mode-dependent sync fields, subject required |
+| `tests/unit` (73) | MATLAB only | frame-log reading and the 128 s timestamp repair, FRAME_INFO bit maths (including bytes captured from the real cameras), GPIO decoding, strobe pattern registers, path conversion and name cleaning, mock node-map rules, property side effects and clamping, frame-rate restore under camera quantization, crop ordering/rounding/restore, sync-mode node/register write order and validation, per-mode sync options, finding Spinnaker in different install layouts (fake files) |
+| `tests/integration` (45) | Windows + .NET + Spinnaker assemblies | C# engine with synthetic cameras: CSV schema, TTL versus ground truth, drop, incomplete and writer-overflow flags, 128 s timestamp steps taken out, TTL start gate, lossless `raw` read-back, exact video-index ↔ CSV-row mapping, SpinVideo, multi-core MJPEG (frame order across encoder threads, OpenDML segments, edge padding) and MATLAB `VideoWriter` output; engine build without SpinVideo and build stamp; `CameraManager` end-to-end including file naming, session folders, camera names, default frame rate, cropped recording and overwrite protection; `LiveViewer` recording into `<root>\<subject>\<session>`, crop from the Camera tab, mode-dependent sync fields, subject required |
 | `tests/hardware` (10) | Cameras attached, SpinView closed | Identity, property round-trips, register layout, 60 fps preview, 3 s passive recording at 100 fps with embedded TTL, file naming and MJPEG frame count, multi-core MJPEG keeping up at 120 fps full frame, cropped 1024×900 recording at 120 fps, triggered-mode configuration, strobe pattern on Line1, repeated start/stop. Settings, crop and trigger nodes are restored afterwards. |
 
 Last run (2026-09-15, engine 1.1.0 built by `spincam.setup` against Spinnaker 4.2.0.83): unit
@@ -31,6 +31,13 @@ afterwards with `spincam.tools.probeCameras`.
 
 2026-09-25, after the default names were swapped (`DefaultCameraNames` {'sideview','topview'}): unit
 and integration 113/113; hardware not run.
+
+2026-09-28, engine 1.3.0 (`TimestampGuard`, `readFrameLog` repair): unit and integration 118/118,
+then `runTests('hardware')` 128/128 with both cameras, and `spincam.tools.probeCameras` showing
+every node and register as before (full frame and a 640×640 crop left by LuminoseFM, 100.058 Hz,
+trigger off, FRAME_INFO default). The steps cannot be produced on demand, so the fix is tested with
+`SyntheticFrameSource.TimestampStepEvery`, and `readFrameLog` took the two steps out of a real
+LuminoseFM topview log of that day.
 
 ## Workstation dependency audit
 

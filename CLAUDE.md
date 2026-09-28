@@ -99,6 +99,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
 | Frame-rate quantization | Writing 120 reads 120.0856; writing that read-back (full precision) reads **120.1772**. Writing the read-back lands one step higher at every rate tried (1–150 fps, 2026-09-16). `CameraDevice.applySettings` therefore bisects the written value until it reads back the snapshot (≈ 25 ms); elsewhere restore by writing the originally *requested* value |
 | Cropped / 100 fps MJPEG (real frames) | Both cameras, 20 s each, queue growth per camera: 1280×1024 @ 100 fps **0** (hw interval 10036 µs = 99.64 fps; 2.9–3.7 MB/s per camera); 1024×900 @ 120 fps **0** (2.6–3.1 MB/s); 960×720 @ 150 fps 0 to +0.4 frames/s (2.3–2.7 MB/s); all 0 missed, 0 writer drops, embedded GPIO decoded (8 / 12) |
 | Parallel MJPEG (`avi-mjpeg-mt`, 2026-09-16) | `JpegEncoder` 1280×1024: 5.4 ms/frame on one core (184 fps synthetic), 364/729/1257/1642 fps on 2/4/8/12 threads; PSNR equal to MATLAB `imwrite` Q75 on the same frame. Real frames, both cameras, camera window open and MATLAB drawing: queue peak ≤ 2 at 100 and 120 fps with **one** thread per camera and with the automatic 7. Calibration on 60 real frames per camera against a lossless `raw` clip: SpinVideo Q75 32.5/40.4 KB per frame at PSNR 28.2/29.5 dB (sideview/topview); IJG Q30 32.6/42.4 KB at 36.7/34.4 dB. Media Foundation (`VideoReader`) reads OpenDML files with AVIX segments, frame count = CSV rows |
+| 128 s timestamp steps | `IManagedImage.TimeStamp` sometimes jumps +128 s (+ one frame period) between consecutive frames and stays offset; FrameID and embedded counter +1. Four in LuminoseFM recordings (2026-09-26 both cameras, 2026-09-28 topview twice), each where the timestamp crossed a multiple of 64 s. Not reproducible on demand. The engine takes them out (`TimestampGuard`, decision 18) |
 | Spinnaker error codes | −1011 timeout (`GetNextImage`), −2006 GenICam AccessException, −1008 bad port address |
 
 ## 4. Architecture decisions
@@ -186,6 +187,13 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     `Recorder.JpegQuality` on the IJG scale (default 30 = SpinVideo Q75's file size on real
     frames); SpinVideo's `Quality` scale is different and stays for `avi-mjpeg`. No SpinVideo
     dependency: works in `NO_SPINVIDEO` builds. SpinVideo formats remain available.
+
+18. **Hardware timestamps are corrected for the camera's spurious 128 s steps** (2026-09-28,
+    engine 1.3.0; `docs/architecture.md`). `TimestampGuard` in the grab loop takes out any change
+    of a whole number of 128 s periods in the hardware interval that the host interval does not
+    show, before anything reads the timestamp; stats and the recording summary count them
+    (`timestampCorrections` / `TimestampCorrections`). `spincam.io.readFrameLog` repairs older
+    logs by the same rule. Never log the raw timestamp without it.
 
 14. **Viewer sync fields follow `SyncController.optionsFor(mode, ttlSource)`**. Adding a sync
     option means: property on `SyncController`, entry in `optionsFor`, a field in

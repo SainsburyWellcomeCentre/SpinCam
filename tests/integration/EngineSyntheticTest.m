@@ -77,6 +77,23 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
             tc.verifyEqual(summary.framesMissed, sum(T.FramesMissedBefore));
         end
 
+        function timestampStepsAreTakenOutAsFramesArrive(tc)
+            % The synthetic camera stamps every 40th frame and all after it 128 s later, as
+            % the Chameleon3 does now and then; the frame log must have none of the steps, and
+            % the summary counts each one taken out (TimestampGuard).
+            fps = 100;
+            [T, summary, csvPath, stream] = tc.record('Fps', fps, 'Seconds', 1.5, 'TimestampStepEvery', 40);
+            steps = floor(max(T.FrameNumber + 1) / 40);
+            tc.assertGreaterThan(steps, 1, 'The recording must span several steps');
+            tc.verifyLessThan(max(abs(diff(T.HardwareTimestamp_us))), 0.5e6, 'No step in the log');
+            tc.verifyEqual(median(diff(T.HardwareTimestamp_us)), 1e6 / fps, 'RelTol', 0.1);
+            tc.verifyGreaterThanOrEqual(summary.timestampCorrections, steps);
+            stats = jsondecode(char(stream.GetStatsJson()));
+            tc.verifyGreaterThanOrEqual(stats.timestampCorrections, summary.timestampCorrections);
+            [~, again] = spincam.io.readFrameLog(csvPath);
+            tc.verifyEqual(again, 0, 'Nothing left for the reader to correct');
+        end
+
         function incompleteFramesFlaggedAndNotWritten(tc)
             [T, summary] = tc.record('IncompleteEvery', 5, 'Seconds', 1.2, ...
                 'Format', SpinCam.VideoFormat.AviUncompressed);
@@ -316,6 +333,7 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
                 opts.Half (1,1) double = 10
                 opts.DropEvery (1,1) double = 0
                 opts.IncompleteEvery (1,1) double = 0
+                opts.TimestampStepEvery (1,1) double = 0
                 opts.Format = SpinCam.VideoFormat.None
                 opts.Gate = SpinCam.RecordGate.None
                 opts.TtlMode = SpinCam.TtlSource.Embedded
@@ -331,6 +349,7 @@ classdef EngineSyntheticTest < matlab.unittest.TestCase
             src.TtlHalfPeriodFrames = int32(opts.Half);
             src.DropEvery = int32(opts.DropEvery);
             src.IncompleteEvery = int32(opts.IncompleteEvery);
+            src.TimestampStepEvery = int32(opts.TimestampStepEvery);
             stream = SpinCam.CameraStream(src);
             tc.addTeardown(@() stream.Dispose());
             stream.TtlMode = opts.TtlMode;

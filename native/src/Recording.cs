@@ -33,6 +33,7 @@ namespace SpinCam
         private long _writerDrops;
         private long _framesMissed;
         private long _framesIncomplete;
+        private long _timestampCorrections;
         private long _firstHostTicks = -1;
         private long _lastHostTicks = -1;
         private long _gateOpenedTicks = -1;
@@ -118,6 +119,7 @@ namespace SpinCam
             item.TimestampNs = frame.TimestampNs;
             item.HostTicks = frame.HostTicks;
             item.Incomplete = frame.Incomplete;
+            item.TimestampCorrected = frame.TimestampCorrected;
             item.EmbeddedCounter = embeddedCounter;
             item.Gpio = gpio;
             item.Ttl = ttl;
@@ -209,6 +211,7 @@ namespace SpinCam
             sb.Append(",\"writerDrops\":").Append(Json.Num(Interlocked.Read(ref _writerDrops)));
             sb.Append(",\"framesMissed\":").Append(Json.Num(Interlocked.Read(ref _framesMissed)));
             sb.Append(",\"framesIncomplete\":").Append(Json.Num(Interlocked.Read(ref _framesIncomplete)));
+            sb.Append(",\"timestampCorrections\":").Append(Json.Num(Interlocked.Read(ref _timestampCorrections)));
             sb.Append(",\"queueDepth\":").Append(Json.Num(queued));
             sb.Append(",\"queuePeak\":").Append(Json.Num(queuePeak));
             ParallelMjpegSink parallel = _sink as ParallelMjpegSink;
@@ -305,6 +308,10 @@ namespace SpinCam
             if (item.Incomplete)
             {
                 Interlocked.Increment(ref _framesIncomplete);
+            }
+            if (item.TimestampCorrected)
+            {
+                Interlocked.Increment(ref _timestampCorrections);
             }
             Interlocked.CompareExchange(ref _firstHostTicks, item.HostTicks, -1);
             Interlocked.Exchange(ref _lastHostTicks, item.HostTicks);

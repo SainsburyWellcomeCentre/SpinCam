@@ -46,6 +46,8 @@ namespace SpinCam
         public long TimestampNs;
         public long HostTicks;
         public bool Incomplete;
+        /// <summary>Set by CameraStream: this frame's timestamp started a TimestampGuard correction.</summary>
+        public bool TimestampCorrected;
     }
 
     public interface IFrameSource : IDisposable
@@ -99,6 +101,7 @@ namespace SpinCam
         public int Ttl = -1;
         public bool Incomplete;
         public bool WriterDropped;
+        public bool TimestampCorrected;
     }
 
     internal sealed class BufferPool

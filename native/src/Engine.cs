@@ -9,7 +9,7 @@ namespace SpinCam
     {
         public static string Version
         {
-            get { return "1.2.0"; }
+            get { return "1.3.0"; }
         }
 
         /// <summary>False when built with NO_SPINVIDEO (SpinVideoNET missing from the Spinnaker install).</summary>

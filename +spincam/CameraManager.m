@@ -546,7 +546,7 @@ classdef CameraManager < handle
             plan = obj.CurrentRecording;
             cams = repmat(struct('Serial', '', 'Name', '', 'VideoFiles', {{}}, 'CsvFile', '', 'FramesLogged', 0, ...
                 'FramesWritten', 0, 'WriterDrops', 0, 'FramesMissed', 0, 'FramesIncomplete', 0, ...
-                'QueuePeak', 0, 'GateOpened', false, 'Error', ''), 1, numel(devices));
+                'TimestampCorrections', 0, 'QueuePeak', 0, 'GateOpened', false, 'Error', ''), 1, numel(devices));
             for k = 1:numel(devices)
                 r = results{k};
                 cams(k).Serial = devices(k).Serial;
@@ -563,6 +563,9 @@ classdef CameraManager < handle
                 cams(k).WriterDrops = fieldOr(r, 'writerDrops', 0);
                 cams(k).FramesMissed = fieldOr(r, 'framesMissed', 0);
                 cams(k).FramesIncomplete = fieldOr(r, 'framesIncomplete', 0);
+                % Frames whose hardware timestamp the engine took a spurious 128 s step out of
+                % (TimestampGuard): the step is corrected in the frame log, this says it happened.
+                cams(k).TimestampCorrections = fieldOr(r, 'timestampCorrections', 0);
                 cams(k).QueuePeak = fieldOr(r, 'queuePeak', 0);
                 cams(k).GateOpened = logical(fieldOr(r, 'gateOpen', false));
                 cams(k).Error = char(fieldOr(r, 'error', ''));

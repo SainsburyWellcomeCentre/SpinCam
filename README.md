@@ -498,7 +498,7 @@ unless `cm.Overwrite = true`.
 |---|---|---|
 | `FrameNumber` | int | 0-based index of rows in this recording |
 | `CameraID` | string | Camera serial number (the camera name is in the file name and `_session.json`) |
-| `HardwareTimestamp_us` | int | Camera timestamp (`IManagedImage.TimeStamp`, device clock) in µs |
+| `HardwareTimestamp_us` | int | Camera timestamp (`IManagedImage.TimeStamp`, device clock) in µs, with any spurious 128 s step taken out (engine 1.3.0; see *Timing*) |
 | `HostTimestamp_datetime` | ISO-8601 | Host wall-clock time when the frame arrived, µs resolution with UTC offset (monotonic high-resolution clock anchored at engine start) |
 | `TTL_State` | 0/1/−1 | State of `TtlLine` for this frame (−1 = not available) |
 | `DroppedFrameFlag` | 0/1 | 1 if frames were lost immediately before this one, this frame was incomplete, or it could not be written to video |
@@ -547,7 +547,7 @@ E  = spincam.io.readEventLog('D:\videoData\mouse01\20260915\mouse01_20260915_143
 | `folder = sessionFolder(subject, session)` | `<DataRoot>\<subject>\<session>` (session optional; subject required). Does not create it |
 | `n = plannedFileNames(fileName, when)` | `n.Cameras{k}` = stem for `Cameras(k)`, `n.Shared` = events/session prefix |
 | `plan = startRecording(folder, fileName)` | Starts (or arms, for `TriggerType 'start'`) recording on all connected cameras. `plan`: Folder, BaseName, FileName, StartTime, Format, Gate, EventsFile, SessionFile, Cameras (Serial, Name, VideoFile, CsvFile) |
-| `summary = stopRecording()` | Flushes, closes and renames files; returns plan fields plus Duration_s and per-camera Serial, Name, VideoFiles, CsvFile, FramesLogged, FramesWritten, WriterDrops, FramesMissed, FramesIncomplete, QueuePeak, GateOpened, Error |
+| `summary = stopRecording()` | Flushes, closes and renames files; returns plan fields plus Duration_s and per-camera Serial, Name, VideoFiles, CsvFile, FramesLogged, FramesWritten, WriterDrops, FramesMissed, FramesIncomplete, TimestampCorrections, QueuePeak, GateOpened, Error |
 | `T = getStats()` | Table: Serial, Name, fps, received, missed, written, writer drops, queue depth, TTL, state, errors |
 | `logEvent(name, value)` | Appends to `<base>_events.csv` using the engine's host clock |
 | `t = hostTime()` | Current host-clock time in seconds (the same clock as `HostTime_s`) |
@@ -644,7 +644,7 @@ Programmatic equivalents of the UI actions (used by the tests): `togglePreview(o
 | `spincam.tools.probeCameras()` | Dumps identity, key nodes, line capabilities, FRAME_INFO / strobe-pattern registers |
 | `spincam.tools.verifyTtlInput(seconds)` | Streams at 100 fps (`'FrameRate'`) in passive mode and prints per-camera TTL edges and lines that were high (apply a TTL to check the wiring) |
 | `spincam.tools.benchmarkWriters()` | Throughput of each video format with synthetic frames |
-| `spincam.io.readFrameLog(csv)`, `readEventLog(csv)` | Typed readers |
+| `spincam.io.readFrameLog(csv)`, `readEventLog(csv)` | Typed readers. `[T, n] = readFrameLog(csv)` also takes the spurious 128 s steps out of a log written before engine 1.3.0 and returns how many (`'CorrectTimestampSteps', false` reads it as written) |
 | `spincam.io.mergeFrameLogs(summary)` / `(folder, baseName)` | All camera logs of one recording with a `Name` column, sorted by host time |
 | `r = spincam.io.RawVideoReader(file)` | `r.read(k)` / `r.read([first last])` → H×W(×N) `uint8`. Properties: `Width`, `Height`, `NumFrames`, `FrameRate`, `CameraId` |
 | `spincam.io.rawToAvi(rawFile, aviFile, 'Profile', ...)` | Converts `.raw` to *Grayscale AVI* (lossless, default) or *Motion JPEG AVI*; frame order and indices are preserved |
@@ -710,6 +710,12 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
 * `HostTimestamp_datetime` is the frame **arrival** time on the host, so it includes
   exposure, readout and USB transfer. Use `HardwareTimestamp_us` for inter-frame timing
   and `HostTime_s` / `_events.csv` for alignment with MATLAB-side events.
+* The Chameleon3 now and then stamps a frame, and every frame after it, exactly 128 s late
+  (its clock counts seconds modulo 128, and Spinnaker counts a wrap twice; seen once or twice an
+  hour, always where the clock crosses a multiple of 64 s). From engine 1.3.0 the grab thread
+  takes out any step of a whole number of 128 s periods that the host clock does not show, so
+  `HardwareTimestamp_us` is continuous; the recording summary's `TimestampCorrections` counts
+  them. `spincam.io.readFrameLog` does the same for older logs.
 
 ---
 

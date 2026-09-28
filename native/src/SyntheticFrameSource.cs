@@ -10,6 +10,8 @@ namespace SpinCam
     ///   TTL(c) = (c / TtlHalfPeriodFrames) % 2 on TtlLine;
     ///   exposures with c % DropEvery == DropEvery - 1 are lost in transport;
     ///   every IncompleteEvery-th delivered frame is flagged incomplete;
+    ///   every TimestampStepEvery-th delivered frame and all after it are stamped 128 s later,
+    ///   as the Chameleon3 does now and then (TimestampGuard);
     ///   FRAME_INFO header: frame counter then GPIO word (each only if enabled), big-endian.
     /// </summary>
     public sealed class SyntheticFrameSource : IFrameSource
@@ -34,6 +36,7 @@ namespace SpinCam
         public int TtlHalfPeriodFrames = 10;
         public int DropEvery = 0;
         public int IncompleteEvery = 0;
+        public int TimestampStepEvery = 0;
         public bool EmbedFrameCounter = true;
         public bool EmbedGpio = true;
         public long IdleLineStatus = 8;
@@ -232,9 +235,11 @@ namespace SpinCam
             frame.Width = _width;
             frame.Height = _height;
             frame.FrameId = id;
-            frame.TimestampNs = 5000000000000L + (long)(HostClock.TicksToSeconds(exposureTicks) * 1e9);
             frame.HostTicks = HostClock.NowTicks();
             long delivered = Interlocked.Increment(ref _delivered);
+            long steps = TimestampStepEvery > 0 ? delivered / TimestampStepEvery : 0;
+            frame.TimestampNs = 5000000000000L + (long)(HostClock.TicksToSeconds(exposureTicks) * 1e9)
+                + steps * TimestampGuard.WrapNs;
             frame.Incomplete = IncompleteEvery > 0 && delivered % IncompleteEvery == 0;
             return true;
         }

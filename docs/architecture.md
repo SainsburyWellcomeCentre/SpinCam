@@ -105,3 +105,22 @@ host rather than latched per exposure.
   releases are expected to work if their .NET API still provides what spincam uses: camera
   list and node maps, `GetNextImage`, `ReadPort`/`WritePort`, `ManagedImage`,
   `ManagedSpinVideo`.
+
+## Hardware timestamps and the 128 s steps
+
+`HardwareTimestamp_us` is Spinnaker's `IManagedImage.TimeStamp`. On the Chameleon3 (FW 1.13.3.00,
+Spinnaker 4.2.0.83) it sometimes jumps forward by exactly 128 s between two consecutive frames
+and stays offset: FrameID and the embedded counter advance by one, the host clock by one frame
+period. Four such steps were found in LuminoseFM's recordings of 2026-09-26 (both cameras) and
+2026-09-28 (topview, twice), each where the timestamp crossed a multiple of 64 s: the camera's
+seconds counter is 7 bits wide, and its wrap is counted twice. It cannot be reproduced on demand.
+
+`TimestampGuard` (one per `CameraStream`, grab thread) compares each hardware interval with the
+host interval (`HostClock` ticks at arrival). When the hardware interval is longer or shorter by a
+whole number of 128 s periods, to within 2 s (arrival jitter is milliseconds; a real gap from lost
+frames shows on both clocks), that many periods are taken out of this and every later timestamp
+of the stream, before anything reads it: the frame log, the stats and the recording. The stream's
+stats and the recording summary count the corrections (`timestampCorrections`). A reset of the
+camera clock or a step that is not a whole number of wraps is left alone. `spincam.io.readFrameLog`
+applies the same rule to logs written before engine 1.3.0. `SyntheticFrameSource.TimestampStepEvery`
+injects the steps for `EngineSyntheticTest`.
