@@ -61,7 +61,7 @@ classdef CameraManagerMockTest < matlab.unittest.TestCase
 
             tc.verifyNumElements(s.Cameras, 2);
             tc.verifyTrue(startsWith(s.BaseName, 'run1_'));
-            names = {'topview', 'sideview'};
+            names = {'sideview', 'topview'};
             for k = 1:2
                 c = s.Cameras(k);
                 tc.verifyEmpty(c.Error);
@@ -103,7 +103,7 @@ classdef CameraManagerMockTest < matlab.unittest.TestCase
                 cameras = [cameras{:}];
             end
             tc.verifyEqual(cameras(1).Settings.Gain, 2);
-            tc.verifyEqual(cameras(2).Name, 'sideview');
+            tc.verifyEqual(cameras(2).Name, 'topview');
         end
 
         function defaultFormatEncodesOnSeveralCores(tc)
@@ -129,18 +129,18 @@ classdef CameraManagerMockTest < matlab.unittest.TestCase
         function fileNamesCombineCameraNameFileNameAndDateTime(tc)
             cm = tc.Manager;
             cm.connect();
-            cm.setCameraName(1, 'top view!');
+            cm.setCameraName(1, 'side view!');
             when = datetime(2026, 9, 15, 14, 30, 12);
             n = cm.plannedFileNames('m01', when);
-            tc.verifyEqual(n.Cameras, {'top_view_m01_20260915_143012', 'sideview_m01_20260915_143012'});
+            tc.verifyEqual(n.Cameras, {'side_view_m01_20260915_143012', 'topview_m01_20260915_143012'});
             tc.verifyEqual(n.Shared, 'm01_20260915_143012');
             n = cm.plannedFileNames('', when);
-            tc.verifyEqual(n.Cameras{2}, 'sideview_20260915_143012');
+            tc.verifyEqual(n.Cameras{2}, 'topview_20260915_143012');
             cm.AppendDateTime = false;
             n = cm.plannedFileNames('m01', when);
-            tc.verifyEqual(n.Cameras, {'top_view_m01', 'sideview_m01'});
+            tc.verifyEqual(n.Cameras, {'side_view_m01', 'topview_m01'});
             n = cm.plannedFileNames('', when);
-            tc.verifyEqual(n.Cameras, {'top_view', 'sideview'});
+            tc.verifyEqual(n.Cameras, {'side_view', 'topview'});
             tc.verifyEqual(n.Shared, 'recording');
         end
 
@@ -164,18 +164,18 @@ classdef CameraManagerMockTest < matlab.unittest.TestCase
             cm = tc.Manager;
             T = cm.listCameras();
             cm.connect(2);
-            tc.verifyEqual(cm.camera(1).Name, 'sideview', 'Default follows serial order, not connect order');
+            tc.verifyEqual(cm.camera(1).Name, 'topview', 'Default follows serial order, not connect order');
             cm.connect(1);
-            tc.verifyEqual(cm.camera(T.Serial{1}).Name, 'topview');
-            tc.verifyEqual(cm.camera('sideview').Serial, T.Serial{2});
-            tc.verifyEqual(cm.listCameras().Name, {'topview'; 'sideview'});
-            tc.verifyError(@() cm.setCameraName('topview', 'SideView'), 'spincam:manager:duplicateCameraName');
-            tc.verifyError(@() cm.setCameraName('topview', '  '), 'spincam:manager:badCameraName');
-            cm.setCameraName(T.Serial{2}, 'side2');
+            tc.verifyEqual(cm.camera(T.Serial{1}).Name, 'sideview');
+            tc.verifyEqual(cm.camera('topview').Serial, T.Serial{2});
+            tc.verifyEqual(cm.listCameras().Name, {'sideview'; 'topview'});
+            tc.verifyError(@() cm.setCameraName('sideview', 'TopView'), 'spincam:manager:duplicateCameraName');
+            tc.verifyError(@() cm.setCameraName('sideview', '  '), 'spincam:manager:badCameraName');
+            cm.setCameraName(T.Serial{2}, 'top2');
             cm.disconnect();
             cm.connect();
-            tc.verifyEqual(cm.camera(T.Serial{2}).Name, 'side2');
-            cm.setProperty('Gain', 4, {'side2'});
+            tc.verifyEqual(cm.camera(T.Serial{2}).Name, 'top2');
+            cm.setProperty('Gain', 4, {'top2'});
             tc.verifyEqual(cm.camera(T.Serial{2}).get('Gain'), 4);
         end
 

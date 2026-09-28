@@ -29,6 +29,9 @@ Last run (2026-09-15, engine 1.1.0 built by `spincam.setup` against Spinnaker 4.
 [performance.md](performance.md#30-minute-soak-test-with-the-defaults). Camera state (full frame, 120.0856 fps, FRAME_INFO, trigger nodes) was verified restored
 afterwards with `spincam.tools.probeCameras`.
 
+2026-09-25, after the default names were swapped (`DefaultCameraNames` {'sideview','topview'}): unit
+and integration 113/113; hardware not run.
+
 ## Workstation dependency audit
 
 Audit performed 2026-09-15 on this workstation.

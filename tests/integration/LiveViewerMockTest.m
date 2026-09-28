@@ -30,7 +30,7 @@ classdef LiveViewerMockTest < matlab.unittest.TestCase
             tc.addTeardown(@() delete(v));
             cm = v.Manager;
             tc.verifyNumElements(cm.Cameras, 2);
-            tc.verifyEqual({cm.Cameras.Name}, {'topview', 'sideview'});
+            tc.verifyEqual({cm.Cameras.Name}, {'sideview', 'topview'});
 
             v.togglePreview(true);
             tc.verifyEqual(cm.State, 'preview');

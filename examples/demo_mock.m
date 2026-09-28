@@ -6,7 +6,7 @@ cm = spincam.CameraManager('Backend', 'mock', 'NumCameras', 2, 'FrameRate', 60, 
 cleanup = onCleanup(@() delete(cm));
 cm.DataRoot = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'tests', '_output', 'demo_mock');
 
-cm.connect();                                   % cameras named topview / sideview
+cm.connect();                                   % cameras named sideview / topview
 cm.configureSync('passive', 'TtlLine', 'Line0');
 cm.Recorder.Format = 'avi-mjpeg-mt';
 

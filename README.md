@@ -211,7 +211,7 @@ The viewer connects all attached cameras, sets them to **100 fps**, names them `
 | Field | Default | Meaning |
 |---|---|---|
 | Connect (check-box) | all attached cameras | Tick to open a camera, untick to release it. |
-| Name (file prefix) | `topview` for the lower serial number, `sideview` for the next | Prepended to that camera's file names. Letters, digits, `-` and `_` (anything else becomes `_`); must be unique. On this rig, serial order gives 24226657 = `topview`, 24226887 = `sideview`. **Check the tiles and rename if the views are swapped.** |
+| Name (file prefix) | `sideview` for the lower serial number, `topview` for the next | Prepended to that camera's file names. Letters, digits, `-` and `_` (anything else becomes `_`); must be unique. On this rig, serial order gives 24226657 = `sideview`, 24226887 = `topview` (checked against the views, 2026-09-25). **Check the tiles and rename if the views are swapped.** |
 | Data root | `D:\videoData` | Top-level folder. |
 | Subject | *(empty — required)* | Animal / subject ID. Creates `<data root>\<subject>`. Record is refused until it is filled in. |
 | Session | today, `yyyyMMdd` | Creates `<subject>\<session>`. Leave it empty to save directly in the subject folder. |
@@ -230,7 +230,7 @@ Record.
 ```matlab
 cm = spincam.CameraManager();                      % Backend 'spinnaker', DefaultFrameRate 100
 disp(cm.listCameras())                             % Serial, Name, Model, Firmware, Speed, Connected
-cm.connect();                                      % all cameras -> 100 fps, topview / sideview
+cm.connect();                                      % all cameras -> 100 fps, sideview / topview
 cm.setCameraName('24226887', 'topview');           % optional: fix names to the physical views
 cm.setCameraName('24226657', 'sideview');
 cm.setProperty('ExposureTime', 5000);              % µs; switches ExposureAuto off (≤ 1/100 s)

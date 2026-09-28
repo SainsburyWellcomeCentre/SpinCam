@@ -10,7 +10,7 @@ global BpodSystem
 %% --- camera setup (once per session) ---
 subject = BpodSystem.GUIData.SubjectName;
 [~, session] = fileparts(BpodSystem.Path.CurrentDataFile);   % e.g. mouse01_Task_20260915_143012
-cm = spincam.CameraManager();              % 100 fps, cameras named topview / sideview
+cm = spincam.CameraManager();              % 100 fps, cameras named sideview / topview
 cm.connect();
 cm.setProperty('ExposureTime', 4000);
 cm.configureSync('passive', 'TtlLine', 'Line0');

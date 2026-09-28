@@ -3,7 +3,7 @@ classdef CameraManager < handle
     %   cm = spincam.CameraManager()                       real cameras (Spinnaker)
     %   cm = spincam.CameraManager('Backend', 'mock')      simulated cameras
     %
-    %   cm.connect();                                      % 100 fps; names topview / sideview
+    %   cm.connect();                                      % 100 fps; names sideview / topview
     %   cm.setCameraName('24226887', 'topview');
     %   cm.configureSync('passive', 'TtlLine', 'Line0');
     %   folder = cm.sessionFolder('mouse01', 'day1');      % D:\videoData\mouse01\day1
@@ -30,8 +30,10 @@ classdef CameraManager < handle
         DateTimeFormat (1,:) char = 'yyyyMMdd_HHmmss'
         %DEFAULTFRAMERATE Frame rate (Hz) set on each camera when it connects; [] leaves it as is.
         DefaultFrameRate double {mustBeScalarOrEmpty, mustBePositive} = 100
-        %DEFAULTCAMERANAMES Names given to cameras in ascending serial-number order.
-        DefaultCameraNames cell = {'topview', 'sideview'}
+        %DEFAULTCAMERANAMES Names given to cameras in ascending serial-number order. On the
+        %   lab's rig that is 24226657 = sideview, 24226887 = topview (checked against the
+        %   views by the operator, 2026-09-25).
+        DefaultCameraNames cell = {'sideview', 'topview'}
     end
 
     properties (SetAccess = private)

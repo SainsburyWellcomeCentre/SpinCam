@@ -8,7 +8,7 @@ session = char(datetime('now', 'Format', 'yyyyMMdd'));
 cm = spincam.CameraManager();          % DataRoot 'D:\videoData', DefaultFrameRate 100
 cleanup = onCleanup(@() delete(cm));   % always releases the cameras
 disp(cm.listCameras());
-cm.connect();                          % 100 fps; names topview/sideview by serial order
+cm.connect();                          % 100 fps; names sideview/topview by serial order
 % cm.setCameraName('24226887', 'topview');   % check which camera is which in the viewer
 % cm.setRoi([0 0 1024 900], [], 'Center', true); cm.setProperty('FrameRate', 120);   % faster, cropped
 
