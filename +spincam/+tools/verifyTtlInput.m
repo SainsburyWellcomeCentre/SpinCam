@@ -3,7 +3,8 @@ function T = verifyTtlInput(seconds, opts)
 %   T = spincam.tools.verifyTtlInput(10) records CSV-only for 10 s on every camera
 %   while you pulse the input, then reports rising/falling edges on TtlLine and
 %   which lines were ever high (embedded GPIO state, latched per exposure).
-%   'FrameRate' defaults to the CameraManager default (100 fps).
+%   Options: 'FrameRate' (100), 'TtlLine' ('Line0'), 'Backend', 'Folder' (CSV output,
+%   default tests\_output\verifyTtlInput).
 arguments
     seconds (1,1) double {mustBePositive} = 10
     opts.Backend (1,:) char = 'spinnaker'
@@ -53,7 +54,7 @@ end
 T = table(Name, Serial, Frames, Rising, Falling, FractionHigh, LinesEverHigh, LinesToggling);
 disp(T);
 if all(Rising == 0)
-    fprintf(['No rising edges on %s. Check: yellow = OPTO_IN (Line0), brown = OPTO_GND, pulse amplitude ' ...
-        '> ~3 V (0-30 V allowed), pulse longer than one frame period.\n'], opts.TtlLine);
+    fprintf(['No rising edges on %s. Check: yellow = OPTO_IN (Line0), brown = OPTO_GND, a 5 V TTL source ' ...
+        '(3.3 V logic may not switch the opto input), pulse longer than one frame period.\n'], opts.TtlLine);
 end
 end

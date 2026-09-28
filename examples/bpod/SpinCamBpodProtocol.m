@@ -5,7 +5,7 @@ function SpinCamBpodProtocol
 %   onsets in the video. Cameras keep recording while RunStateMachine blocks MATLAB
 %   because acquisition runs on spincam's native threads.
 %   Video goes to D:\videoData\<subject>\<Bpod session>\<camera>_<subject>_<datetime>.avi/.csv
-global BpodSystem
+global BpodSystem %#ok<GVMIS> Bpod's state lives in this global
 
 %% --- camera setup (once per session) ---
 subject = BpodSystem.GUIData.SubjectName;

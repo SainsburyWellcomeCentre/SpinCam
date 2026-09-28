@@ -10,7 +10,7 @@ function report = setup(opts)
 %         spincam.setup('SpinnakerDir', 'D:\Programs\Teledyne\Spinnaker')
 %         spincam.setup('BrowseSpinnaker', true)          % choose the folder in a dialog
 %     The folder may be the Spinnaker root, its bin64 folder, or the folder that holds
-%     SpinnakerNET_v140.dll. It is saved in spincam_config.json (spincam folder) and used
+%     SpinnakerNET_v<toolset>.dll. It is saved in spincam_config.json (spincam folder) and used
 %     from then on. The environment variable SPINCAM_SPINNAKER_BIN overrides it.
 %   * Spinnaker versions: any installation with the .NET API (SpinnakerNET_v<toolset>.dll)
 %     is accepted, because the engine is compiled against the installed assemblies

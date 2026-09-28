@@ -15,9 +15,13 @@ classdef CameraManager < handle
     %   See README.md section 8 for the full reference.
 
     properties
+        %RECORDER Video and CSV output settings (spincam.VideoRecorder).
         Recorder spincam.VideoRecorder
+        %SYNC Synchronization settings (spincam.SyncController); see configureSync.
         Sync spincam.SyncController
+        %PREVIEWMAXHZ Maximum rate at which preview frames are copied for MATLAB.
         PreviewMaxHz (1,1) double {mustBeNonnegative} = 30
+        %STOPTIMEOUTSECONDS Time stopRecording waits for each writer to finish.
         StopTimeoutSeconds (1,1) double {mustBePositive} = 120
         %OVERWRITE Allow startRecording to replace existing output files.
         Overwrite (1,1) logical = false
@@ -27,6 +31,7 @@ classdef CameraManager < handle
         DataRoot (1,:) char = 'D:\videoData'
         %APPENDDATETIME Append _<recording start time> to every output file name.
         AppendDateTime (1,1) logical = true
+        %DATETIMEFORMAT datetime format of the appended recording start time.
         DateTimeFormat (1,:) char = 'yyyyMMdd_HHmmss'
         %DEFAULTFRAMERATE Frame rate (Hz) set on each camera when it connects; [] leaves it as is.
         DefaultFrameRate double {mustBeScalarOrEmpty, mustBePositive} = 100
@@ -86,6 +91,7 @@ classdef CameraManager < handle
 
         % ------------------------------------------------------------- connection
         function T = listCameras(obj)
+            %LISTCAMERAS Table of attached cameras: Serial, Name, Model, Firmware, Speed, Connected.
             info = obj.Impl.listCameras();
             if isempty(info)
                 T = table(cell(0, 1), cell(0, 1), cell(0, 1), cell(0, 1), cell(0, 1), false(0, 1), ...
@@ -244,6 +250,8 @@ classdef CameraManager < handle
 
         % ------------------------------------------------------------- properties
         function actual = setProperty(obj, name, value, ids)
+            %SETPROPERTY Set a friendly or raw GenICam property on all (default) or IDS cameras.
+            %   Returns the values read back. Properties that need stopped streams restart preview.
             arguments
                 obj
                 name {mustBeTextScalar}
@@ -279,6 +287,7 @@ classdef CameraManager < handle
         end
 
         function v = getProperty(obj, name, ids)
+            %GETPROPERTY Property value per camera: numeric vector, or cell for enums/strings.
             arguments
                 obj
                 name {mustBeTextScalar}
@@ -343,6 +352,7 @@ classdef CameraManager < handle
         end
 
         function applySync(obj)
+            %APPLYSYNC Apply the current Sync settings to every connected camera.
             if strcmp(obj.State, 'recording')
                 error('spincam:manager:recording', 'Cannot change sync settings while recording.');
             end
@@ -360,6 +370,7 @@ classdef CameraManager < handle
 
         % -------------------------------------------------------------- streaming
         function startPreview(obj)
+            %STARTPREVIEW Apply sync settings and stream all cameras without recording.
             obj.requireConnected();
             if ~strcmp(obj.State, 'idle')
                 return
@@ -371,6 +382,7 @@ classdef CameraManager < handle
         end
 
         function stopPreview(obj)
+            %STOPPREVIEW Stop streaming (error while recording).
             if strcmp(obj.State, 'recording')
                 error('spincam:manager:recording', 'Stop recording before stopping preview.');
             end

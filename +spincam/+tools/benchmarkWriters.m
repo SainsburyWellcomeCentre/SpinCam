@@ -24,7 +24,7 @@ native = {'raw', SpinCam.VideoFormat.Raw; 'avi-raw', SpinCam.VideoFormat.AviUnco
 formats = [native(:, 1)', {'matlab-avi', 'matlab-mjpeg'}];
 n = numel(formats);
 Format = formats(:); EncodeFps = nan(n, 1); MBps = nan(n, 1); FileMB = nan(n, 1);
-Sustainable = false(n, 1); Note = repmat({''}, n, 1);
+Note = repmat({''}, n, 1);
 
 for k = 1:size(native, 1)
     stem = fullfile(opts.Folder, ['bench_' strrep(native{k, 1}, '-', '_')]);

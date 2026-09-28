@@ -118,20 +118,24 @@ classdef LiveViewer < handle
 
         % ------------------------------------------------ programmatic UI actions
         function togglePreview(obj, on)
+            %TOGGLEPREVIEW Press or release the Preview button.
             obj.Ui.Preview.Value = logical(on);
             obj.onPreview(logical(on));
         end
 
         function toggleRecording(obj, on)
+            %TOGGLERECORDING Press Record (ON true) or Stop recording (ON false).
             obj.Ui.Record.Value = logical(on);
             obj.onRecord(logical(on));
         end
 
         function setProperty(obj, name, value)
+            %SETPROPERTY Edit a Camera-tab property for the "Apply to" camera(s).
             obj.onProperty(name, value);
         end
 
         function setAuto(obj, name, on)
+            %SETAUTO Tick or untick a property's Auto check-box.
             obj.onAuto(name, on);
         end
 
@@ -152,6 +156,7 @@ classdef LiveViewer < handle
         end
 
         function resetCrop(obj)
+            %RESETCROP Press Full frame.
             obj.onCropReset();
         end
 
@@ -200,6 +205,7 @@ classdef LiveViewer < handle
         end
 
         function setCameraName(obj, serial, name)
+            %SETCAMERANAME Edit a camera's name on the Recording tab.
             obj.onCameraName(char(serial), char(name));
         end
 
@@ -244,6 +250,7 @@ classdef LiveViewer < handle
         end
 
         function selectCamera(obj, serial, connected)
+            %SELECTCAMERA Tick (connect) or untick (release) a camera on the Recording tab.
             obj.onCameraToggle(char(serial), logical(connected));
         end
 
@@ -253,6 +260,7 @@ classdef LiveViewer < handle
         end
 
         function images = tileImages(obj)
+            %TILEIMAGES Images currently shown in the camera tiles (cell array).
             images = arrayfun(@(t) t.Image.CData, obj.Tiles, 'UniformOutput', false);
         end
     end
@@ -406,9 +414,10 @@ classdef LiveViewer < handle
             obj.Ui.CropStatus.Layout.Column = [1 4];
 
             note = uilabel(g, 'WordWrap', 'on', 'FontSize', 11, 'FontColor', P.Muted, 'Text', sprintf([ ...
-                'Cameras are set to %s when they connect. At full frame, MJPEG video keeps up with about ' ...
-                '100 fps per camera; crop to record faster (encoding speed scales with the cropped area, ' ...
-                'the Chameleon3 itself tops out at 150 fps). Two full-frame cameras sharing one USB 3.0 ' ...
+                'Cameras are set to %s when they connect. At full frame, avi-mjpeg-mt keeps up with ' ...
+                '120 fps and SpinVideo avi-mjpeg with about 100 fps per camera; crop to record faster ' ...
+                '(encoding speed scales with the cropped area; the Chameleon3 tops out at 150 fps). ' ...
+                'Two full-frame cameras sharing one USB 3.0 ' ...
                 'controller lose frames above ~120 fps. Manual exposure must fit in one frame period. ' ...
                 'Gamma is not available on Chameleon3 firmware 1.13.'], frameRateText(obj.Manager.DefaultFrameRate)));
             note.Layout.Row = 3;
@@ -762,7 +771,7 @@ classdef LiveViewer < handle
                 return
             end
             try
-                [~, warnId] = lastwarn('');
+                lastwarn('');
                 obj.Manager.setProperty(name, value, obj.targetIds());
                 [warnMsg, warnId] = lastwarn();
                 if strcmp(warnId, 'spincam:property:clamped')
@@ -939,7 +948,8 @@ classdef LiveViewer < handle
                     roi(1), roi(2), full(1), full(2));
             end
             capacity = spincam.VideoRecorder.MeasuredCapacity.avi_mjpeg * 1280 * 1024 / (roi(3) * roi(4));
-            ui.CropStatus.Text = sprintf(['%s MJPEG video keeps up with about %.0f fps at this size. Edit the ' ...
+            ui.CropStatus.Text = sprintf(['%s SpinVideo avi-mjpeg keeps up with about %.0f fps ' ...
+                'at this size. Edit the ' ...
                 'numbers to preview a new crop as a dashed box on the full-frame image.'], state, capacity);
             set(obj.cropControls(), 'Enable', onOff(~strcmp(obj.Manager.State, 'recording')));
             obj.updateCropOverlay();
@@ -1233,8 +1243,9 @@ lbl = uilabel(grid, 'Text', text, 'Tooltip', tooltip);
 end
 
 function labels = formatLabels()
-labels = {'avi-mjpeg-mt · MJPEG AVI (native, multi-core)', 'avi-mjpeg · MJPEG AVI (SpinVideo)', 'avi-raw · uncompressed AVI (native)', ...
-    'mp4-h264 · H.264 MP4 (native)', 'raw · lossless .raw (native, any fps)', ...
+labels = {'avi-mjpeg-mt · MJPEG AVI (native, multi-core)', 'avi-mjpeg · MJPEG AVI (SpinVideo)', ...
+    'avi-raw · uncompressed AVI (SpinVideo)', ...
+    'mp4-h264 · H.264 MP4 (SpinVideo)', 'raw · lossless .raw (native, any fps)', ...
     'matlab-avi · Grayscale AVI (MATLAB)', 'matlab-mjpeg · MJPEG AVI (MATLAB)', 'none · CSV only'};
 end
 

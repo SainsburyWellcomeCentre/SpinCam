@@ -5,8 +5,8 @@ namespace SpinCam
     /// <summary>
     /// Removes the spurious steps of a whole multiple of 128 s from a camera's hardware timestamps.
     /// The Chameleon3 (FW 1.13.3.00) through Spinnaker 4.2.0.83 now and then reports a frame
-    /// 128 s later than it was taken, and every later frame with it: the camera's clock counts
-    /// seconds modulo 128 and its wrap is counted twice. Seen on 2026-09-26 and 2026-09-28, always
+    /// 128 s later than it was taken, and every later frame with it, as if the wrap of a 7-bit
+    /// seconds counter were counted twice (not confirmed). Seen on 2026-09-26 and 2026-09-28, always
     /// where the clock crossed a multiple of 64 s, with FrameID and the embedded counter advancing
     /// by one. A real interval between two frames is followed by the host clock too, so a step in
     /// the hardware interval that the host interval does not show, and that is a whole number of

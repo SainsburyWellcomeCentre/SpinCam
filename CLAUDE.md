@@ -147,7 +147,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     side, no engine change); split recordings keep numbered segments. `CameraManager.plannedFileNames`
     is the single source of these names (the viewer's file preview uses it too).
 12. **Camera names** live on `CameraDevice.Name` (settable only by `CameraManager`).
-    Defaults `DefaultCameraNames = {'topview','sideview'}` are assigned by **ascending serial
+    Defaults `DefaultCameraNames = {'sideview','topview'}` are assigned by **ascending serial
     rank among attached cameras**, not connect order, so a physical camera keeps its default
     however it is connected; `setCameraName` names are remembered per manager across
     disconnect/reconnect. `camera(id)` and every `ids` argument accept names.
@@ -159,6 +159,10 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     snapshot is the camera's own state). `raw` (~0.9 TB/h) does not fit multi-hour sessions.
     The default format is `avi-mjpeg-mt` since 2026-09-16 (decision 17); before that it was
     SpinVideo `avi-mjpeg`, whose single-threaded encoder is only 4 % faster than 100 fps.
+14. **Viewer sync fields follow `SyncController.optionsFor(mode, ttlSource)`**. Adding a sync
+    option means: property on `SyncController`, entry in `optionsFor`, a field in
+    `LiveViewer.buildSyncTab`, a row in README §5's field reference. Pending (unapplied)
+    sync edits are applied automatically on Preview/Record.
 15. **Crop = GenICam ROI through `CameraDevice.setRoi`** (`[x y w h]`, `'Center'`). Order:
     offsets to 0, then Width/Height (rounded **down** to increments), then offsets (clamped to
     the sensor). `applySettings` restores crops through `setRoi`, so any crop can replace any
@@ -178,7 +182,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     (`NativeEngine.VerifiedSpinnakerVersion`); update it after a hardware run on another version.
 17. **Multi-core MJPEG `avi-mjpeg-mt` is the default format** (user request 2026-09-16, after
     SpinVideo MJPEG's writer queue grew 1–2 frames/s at 100 fps full frame with a live preview
-    and a busy MATLAB, i.e. writer drops after ~15 min). The engine encodes JPEG itself
+    and a busy MATLAB, i.e. writer drops after ~10 min). The engine encodes JPEG itself
     (`JpegEncoder`, one per `EncoderThreads` worker, 0 = ProcessorCount/4 clamped 2–8) and a
     muxer writes an OpenDML AVI (`AviWriter`) in index order (`ParallelMjpegSink`). The sink
     takes buffer ownership and blocks `Write` at `2 × threads` in flight, so overload still shows
@@ -187,18 +191,12 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
     `Recorder.JpegQuality` on the IJG scale (default 30 = SpinVideo Q75's file size on real
     frames); SpinVideo's `Quality` scale is different and stays for `avi-mjpeg`. No SpinVideo
     dependency: works in `NO_SPINVIDEO` builds. SpinVideo formats remain available.
-
 18. **Hardware timestamps are corrected for the camera's spurious 128 s steps** (2026-09-28,
     engine 1.3.0; `docs/architecture.md`). `TimestampGuard` in the grab loop takes out any change
     of a whole number of 128 s periods in the hardware interval that the host interval does not
     show, before anything reads the timestamp; stats and the recording summary count them
     (`timestampCorrections` / `TimestampCorrections`). `spincam.io.readFrameLog` repairs older
     logs by the same rule. Never log the raw timestamp without it.
-
-14. **Viewer sync fields follow `SyncController.optionsFor(mode, ttlSource)`**. Adding a sync
-    option means: property on `SyncController`, entry in `optionsFor`, a field in
-    `LiveViewer.buildSyncTab`, a row in README §5's field reference. Pending (unapplied)
-    sync edits are applied automatically on Preview/Record.
 
 ## 5. Layout
 
@@ -207,7 +205,7 @@ Treat these as ground truth unless re-verified; `spincam.tools.probeCameras` rep
                           VideoRecorder, LiveViewer; setup.m, version.m
 +spincam/+internal/       adapters, backends, engine loader, FrameInfo, PropertyRegistry,
                           path utils (not public API; may change)
-+spincam/+io/             readFrameLog, mergeFrameLogs, readEventLog
++spincam/+io/             readFrameLog, mergeFrameLogs, readEventLog, RawVideoReader, rawToAvi
 +spincam/+tools/          probeCameras, verifyTtlInput, benchmarkWriters
 native/src/*.cs           C# engine sources (namespace SpinCam)
 native/bin/               build output SpinCamEngine.dll + SpinCamEngine.build.json (generated)

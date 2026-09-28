@@ -14,8 +14,8 @@ provides:
 * an organised **storage layout**: `D:\videoData\<subject>\<session>\`, with each camera's
   video and CSV sharing one name, `<camera>_<file name>_<yyyyMMdd_HHmmss>`
   (e.g. `topview_mouse01_20260915_143012.avi` + `.csv`),
-* sensible **defaults**: 100 fps with MJPEG video (sustainable for hours with two full-frame
-  cameras), cameras named `topview` / `sideview`, passive TTL logging on Line0,
+* sensible **defaults**: 100 fps with multi-core MJPEG video (sustainable with two full-frame
+  cameras), cameras named `sideview` / `topview`, passive TTL logging on Line0,
 * **cropping** (region of interest) for higher frame rates: two cameras record 1024×900 at
   120 fps or 960×720 at 150 fps without dropped frames,
 * **any Spinnaker installation folder and version**: found automatically or chosen in
@@ -47,7 +47,7 @@ provides:
 | Item | Needed? |
 |---|---|
 | Windows 10/11, 64-bit | **Required** |
-| MATLAB R2023b or newer | **Required** (developed on R2025b). No toolboxes: the Image Acquisition Toolbox and the GenICam / Point Grey support packages are **not** used |
+| MATLAB R2023b or newer | **Required** (developed and tested on R2025b only). No toolboxes: the Image Acquisition Toolbox and the GenICam / Point Grey support packages are **not** used |
 | .NET Framework 4.8 | **Required**; part of Windows 10/11 |
 | Spinnaker SDK or SpinView **with its .NET components** | **Required**, in any folder (§2). Verified with 4.2.0.83. Its SpinVideo component is needed only for the `avi-mjpeg`, `avi-raw` and `mp4-h264` formats; the default `avi-mjpeg-mt` does not use it |
 | C# compiler `csc.exe` (.NET Framework 4.x) | Ships with Windows; `spincam.setup` uses it once to build the acquisition engine |
@@ -194,8 +194,8 @@ v = spincam.LiveViewer();                         % real cameras
 v = spincam.LiveViewer('Backend', 'mock');        % no hardware needed
 ```
 
-The viewer connects all attached cameras, sets them to **100 fps**, names them `topview` and
-`sideview`, and selects passive TTL logging.
+The viewer connects all attached cameras, sets them to **100 fps**, names them `sideview` and
+`topview`, and selects passive TTL logging.
 
 | Area | What it shows / does |
 |---|---|
@@ -203,7 +203,7 @@ The viewer connects all attached cameras, sets them to **100 fps**, names them `
 | **Camera tiles** (left) | Live image per camera titled `<name> · <serial>`, with frame number, measured fps and missed frames. The **TTL** badge turns green when the TTL input was high in the latest frame, which is a quick wiring check. |
 | **Statistics table** | Per camera: fps, frames received / missed / written, writer drops, writer queue, last TTL state. |
 | **Recording** tab | Cameras to connect and their names; where to save; format; a preview of the exact folder and file names. See the table below. |
-| **Camera** tab | Frame rate, exposure, gain, black level, gamma: slider, number and *Auto* check-box. *Apply to* selects all cameras or one. **Crop**: X, Y, Width, Height (or *Centre on the sensor*), then *Apply crop* or *Full frame*. A dashed box previews the crop on the full-frame image, and the panel shows how fast MJPEG can record at that size. |
+| **Camera** tab | Frame rate, exposure, gain, black level, gamma: slider, number and *Auto* check-box. *Apply to* selects all cameras or one. **Crop**: X, Y, Width, Height (or *Centre on the sensor*), then *Apply crop* or *Full frame*. A dashed box previews the crop on the full-frame image, and the panel shows how fast SpinVideo `avi-mjpeg` can record at that size. |
 | **Sync** tab | Mode A / B / C with a description and wiring hint. **Only the fields the selected mode uses are enabled**; the others are greyed out, and their panel title says which mode uses them. See §5. |
 
 **Recording tab fields**
@@ -397,12 +397,12 @@ onsets in the video.
 
 ```matlab
 function SpinCamBpodProtocol
-global BpodSystem
+global BpodSystem %#ok<GVMIS> Bpod's state lives in this global
 
 %% --- camera setup (once per session) ---
 subject = BpodSystem.GUIData.SubjectName;
 [~, session] = fileparts(BpodSystem.Path.CurrentDataFile);   % e.g. mouse01_Task_20260915_143012
-cm = spincam.CameraManager();              % 100 fps, cameras named topview / sideview
+cm = spincam.CameraManager();              % 100 fps, cameras named sideview / topview
 cm.connect();
 cm.setProperty('ExposureTime', 4000);
 cm.configureSync('passive', 'TtlLine', 'Line0');    % Bpod BNC1 -> yellow/brown
@@ -475,7 +475,7 @@ Name parts, for camera stem `<camera>_<fileName>_<datetime>`:
 
 | Part | Source | Notes |
 |---|---|---|
-| `<camera>` | `CameraDevice.Name` (`cm.setCameraName`, Recording tab) | Defaults `cm.DefaultCameraNames = {'topview','sideview'}`, assigned in ascending serial order among attached cameras; further cameras are `cam<serial>`. Names set with `setCameraName` are kept when a camera is disconnected and reconnected. |
+| `<camera>` | `CameraDevice.Name` (`cm.setCameraName`, Recording tab) | Defaults `cm.DefaultCameraNames = {'sideview','topview'}`, assigned in ascending serial order among attached cameras; further cameras are `cam<serial>`. Names set with `setCameraName` are kept when a camera is disconnected and reconnected. |
 | `<fileName>` | 2nd argument of `startRecording` / *File name* field | Optional. Characters other than letters, digits, `-`, `_` become `_`. |
 | `<datetime>` | Recording start, `cm.DateTimeFormat` (`yyyyMMdd_HHmmss`) | Omitted when `cm.AppendDateTime = false`. |
 
@@ -532,7 +532,7 @@ E  = spincam.io.readEventLog('D:\videoData\mouse01\20260915\mouse01_20260915_143
 
 | Member | Description |
 |---|---|
-| `cm = spincam.CameraManager(Name,Value)` | `'Backend'` (`'spinnaker'` or `'mock'`); `'FrameRate'` (100) = `DefaultFrameRate`, `[]` to leave cameras unchanged. Mock only: `'NumCameras'` (2), `'Resolution'` ([1024 1280]), `'TtlHalfPeriodFrames'` (30), `'DropEvery'`, `'IncompleteEvery'` |
+| `cm = spincam.CameraManager(Name,Value)` | `'Backend'` (`'spinnaker'` or `'mock'`); `'FrameRate'` (100) = `DefaultFrameRate`, `[]` to leave cameras unchanged. Mock only: `'NumCameras'` (2), `'Resolution'` ([1024 1280]), `'TtlHalfPeriodFrames'` (30), `'DropEvery'`, `'IncompleteEvery'`, `'GammaAvailable'` (false) |
 | `T = listCameras()` | Table: Serial, Name, Model, Firmware, Speed, Connected |
 | `connect(ids)` / `disconnect(ids)` | `ids`: cellstr of serials or names, index vector, or omitted for all. `connect` names new cameras and sets `DefaultFrameRate` (shortening a manual exposure that would not fit in the frame period) |
 | `cam = camera(id)` | `spincam.CameraDevice` by index, serial or name |
@@ -543,15 +543,15 @@ E  = spincam.io.readEventLog('D:\videoData\mouse01\20260915\mouse01_20260915_143
 | `roi = getRoi(ids)` / `roi = resetRoi(ids)` | Current crop / full frame |
 | `configureSync(mode, Name,Value)` / `applySync()` | See §5 |
 | `startPreview()` / `stopPreview()` | Stream without recording |
-| `[frames, meta] = getLatestFrames(ids)` | Cell of `uint8` H×W images; `meta` struct array (FrameId, TTL, Width, Height) |
+| `[frames, meta] = getLatestFrames(ids)` | Cell of `uint8` H×W images; `meta` struct array (Serial, FrameId, TTL, Width, Height, Sequence) |
 | `folder = sessionFolder(subject, session)` | `<DataRoot>\<subject>\<session>` (session optional; subject required). Does not create it |
 | `n = plannedFileNames(fileName, when)` | `n.Cameras{k}` = stem for `Cameras(k)`, `n.Shared` = events/session prefix |
 | `plan = startRecording(folder, fileName)` | Starts (or arms, for `TriggerType 'start'`) recording on all connected cameras. `plan`: Folder, BaseName, FileName, StartTime, Format, Gate, EventsFile, SessionFile, Cameras (Serial, Name, VideoFile, CsvFile) |
 | `summary = stopRecording()` | Flushes, closes and renames files; returns plan fields plus Duration_s and per-camera Serial, Name, VideoFiles, CsvFile, FramesLogged, FramesWritten, WriterDrops, FramesMissed, FramesIncomplete, TimestampCorrections, QueuePeak, GateOpened, Error |
-| `T = getStats()` | Table: Serial, Name, fps, received, missed, written, writer drops, queue depth, TTL, state, errors |
+| `T = getStats()` | Table: Serial, Name, Running, Recording, Armed, FPS, FramesReceived, FramesMissed, FramesIncomplete, GrabTimeouts, QueueDepth, FramesWritten, WriterDrops, LastTTL, LastFrameId, Faulted, LastError |
 | `logEvent(name, value)` | Appends to `<base>_events.csv` using the engine's host clock |
 | `t = hostTime()` | Current host-clock time in seconds (the same clock as `HostTime_s`) |
-| Settable properties | `DataRoot` (`'D:\videoData'`), `AppendDateTime` (true), `DateTimeFormat` (`'yyyyMMdd_HHmmss'`), `DefaultFrameRate` (100), `DefaultCameraNames` (`{'topview','sideview'}`), `Overwrite` (false), `PreviewMaxHz` (30), `StopTimeoutSeconds` (120), `ResetOnDisconnect` (true), `Recorder` (`spincam.VideoRecorder`), `Sync` (`spincam.SyncController`) |
+| Settable properties | `DataRoot` (`'D:\videoData'`), `AppendDateTime` (true), `DateTimeFormat` (`'yyyyMMdd_HHmmss'`), `DefaultFrameRate` (100), `DefaultCameraNames` (`{'sideview','topview'}`), `Overwrite` (false), `PreviewMaxHz` (30), `StopTimeoutSeconds` (120), `ResetOnDisconnect` (true), `Recorder` (`spincam.VideoRecorder`), `Sync` (`spincam.SyncController`) |
 | Read-only properties | `Cameras`, `State` (`idle`, `preview`, `recording`), `Backend`, `CurrentRecording`, `LastRecording` |
 | `spincam.CameraManager.cleanName(text)` | The name cleaning used for camera names and file names |
 
@@ -561,7 +561,7 @@ E  = spincam.io.readEventLog('D:\videoData\mouse01\20260915\mouse01_20260915_143
 |---|---|
 | `Serial`, `Model`, `Firmware`, `Name` | Identity; `Name` is set through `cm.setCameraName` |
 | `v = get(name)` / `actual = set(name, value)` | Property access; `set` switches the related auto mode off, enables the feature node if needed, clamps to limits (with a warning), and returns the value read back |
-| `T = describeProperties()` | Table of friendly properties: node, value, min, max, unit, available, writable |
+| `T = describeProperties()` | Table of friendly properties: Name, Node, Value, Min, Max, Unit, Available, Writable, Auto |
 | `s = getSettings()` / `applySettings(s)` | Struct round-trip for persisting setups (includes the crop). The frame rate is restored to the exact value read back, not re-quantized one step higher |
 | `roi = getRoi()` / `roi = setRoi([x y w h], 'Center', tf)` / `roi = resetRoi()` / `sz = sensorSize()` | Crop of this camera (stream must be stopped for `setRoi`); `sensorSize` = full frame `[width height]` |
 | `NodeMap`, `StreamNodeMap`, `Registers` | Low-level adapters (`get/set/info/execute`, `read/write`) |
@@ -590,7 +590,8 @@ Friendly property names (aliases in parentheses):
 * `plan = apply(device)`: returns the engine TTL settings
 * `describe()`: one-line summary (shown in the viewer)
 * `spincam.SyncController.optionsFor(mode, ttlSource)`: options used by a mode
-* `spincam.SyncController.reset(device)`: free-run, strobe pattern period 1, embedding off
+* `spincam.SyncController.reset(device)`: free-run, Line2/Line3 back to inputs, strobe pattern
+  period 1 with all slots enabled, embedding off
 
 ### `spincam.VideoRecorder` (handle)
 
@@ -605,6 +606,7 @@ Friendly property names (aliases in parentheses):
 | `MaxFileSizeMB` | 0 | Split size of the SpinVideo formats; 0 = no split. `avi-mjpeg-mt` ignores it (one OpenDML file) |
 | `AviRiffSizeMB` | 0 | `avi-mjpeg-mt` OpenDML segment size; 0 = 1024. For tests only |
 | `QueueSeconds` | 10 | Writer queue depth, in seconds of video, before frames are dropped (flagged) |
+| `MaxQueueMB` | 2048 | Upper bound of the writer queue, in MB of frames |
 | `CsvExtended` | `true` | Write the extended CSV columns |
 | `ScrubEmbeddedPixels` | `true` | Restore the 8 embedded-data pixels in the video |
 
@@ -647,7 +649,7 @@ Programmatic equivalents of the UI actions (used by the tests): `togglePreview(o
 | `spincam.io.readFrameLog(csv)`, `readEventLog(csv)` | Typed readers. `[T, n] = readFrameLog(csv)` also takes the spurious 128 s steps out of a log written before engine 1.3.0 and returns how many (`'CorrectTimestampSteps', false` reads it as written) |
 | `spincam.io.mergeFrameLogs(summary)` / `(folder, baseName)` | All camera logs of one recording with a `Name` column, sorted by host time |
 | `r = spincam.io.RawVideoReader(file)` | `r.read(k)` / `r.read([first last])` → H×W(×N) `uint8`. Properties: `Width`, `Height`, `NumFrames`, `FrameRate`, `CameraId` |
-| `spincam.io.rawToAvi(rawFile, aviFile, 'Profile', ...)` | Converts `.raw` to *Grayscale AVI* (lossless, default) or *Motion JPEG AVI*; frame order and indices are preserved |
+| `spincam.io.rawToAvi(rawFile, aviFile, 'Profile', ...)` | Converts `.raw` to *Grayscale AVI* (lossless, default) or *Motion JPEG AVI* (`'Quality'`, 90); frame order and indices are preserved |
 
 ---
 
@@ -675,15 +677,16 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
   (≈ 180 fps per thread at full frame, scaling with threads), so its writer queue stays flat at
   120 fps full frame even with one thread and MATLAB busy drawing. SpinVideo's `avi-mjpeg`
   encodes one frame at a time at ≈ 104 fps per camera, only 4 % above the 100 fps default: with
-  a live preview and a busy MATLAB its queue grew by 1–2 frames/s and would overflow within
-  about 15 minutes. Use it only cropped (1024×900 at 120 fps, 960×720 at 150 fps).
+  a live preview and a busy MATLAB its queue grew by 1.4–2.3 frames/s, which fills the default
+  1000-frame queue (10 s at 100 fps) in 7–12 minutes. Use it only cropped (1024×900 at 120 fps,
+  960×720 at 150 fps).
   `startRecording` warns (`spincam:recorder:encoderMayNotKeepUp`) when the frame rate exceeds
   the measured capacity for the format, frame size and threads. Frames that overflow the writer
   queue (`QueueSeconds`) are flagged (`WriterDropFlag`), never lost silently.
 * **`raw`** keeps up at any camera rate (disk speed) and is bit-exact, but needs ≈ 0.9 TB per
   hour at 100 fps.
-* A 17.5-minute Bpod session with the defaults (camera window open) had 0 missed frames, 0 writer
-  drops and a writer queue of at most 2 frames; a 30-minute passive recording with SpinVideo
+* A 17.5-minute session driven by the Bpod emulator with the defaults (camera window open) had
+  0 missed frames, 0 writer drops and a writer queue of at most 2 frames; a 30-minute passive recording with SpinVideo
   `avi-mjpeg` had flat MATLAB memory.
 
 **Long sessions: disk, RAM and CPU** (two cameras, full frame, 100 fps, `avi-mjpeg-mt`)
@@ -698,8 +701,9 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
   `QueueSeconds` (10 s ≈ 1.25 GB per camera at full frame, 100 fps) and `MaxQueueMB` (2 GB);
   steady state uses < 200 MB.
 * **CPU:** about half a core of JPEG encoding per camera at 100 fps, spread over its encoder
-  threads, plus a muxer and grab threads per camera, all outside MATLAB, so Bpod's `RunStateMachine` does not affect recording. Running the viewer in a
-  separate MATLAB session from Bpod keeps its preview responsive.
+  threads, plus a muxer and grab threads per camera, all outside MATLAB, so Bpod's
+  `RunStateMachine` does not affect recording. Running the viewer in a separate MATLAB session
+  from Bpod keeps its preview responsive.
 
 **Timing**
 
@@ -711,8 +715,8 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
   exposure, readout and USB transfer. Use `HardwareTimestamp_us` for inter-frame timing
   and `HostTime_s` / `_events.csv` for alignment with MATLAB-side events.
 * The Chameleon3 now and then stamps a frame, and every frame after it, exactly 128 s late
-  (its clock counts seconds modulo 128, and Spinnaker counts a wrap twice; seen once or twice an
-  hour, always where the clock crosses a multiple of 64 s). From engine 1.3.0 the grab thread
+  (four times in recordings of 2026-09-26 and 2026-09-28, always where the clock crossed a
+  multiple of 64 s; the cause is not confirmed). From engine 1.3.0 the grab thread
   takes out any step of a whole number of 128 s periods that the host clock does not show, so
   `HardwareTimestamp_us` is continuous; the recording summary's `TimestampCorrections` counts
   them. `spincam.io.readFrameLog` does the same for older logs.
@@ -734,12 +738,12 @@ i7-14700K, NVMe SSD). The full measurements are in [docs/performance.md](docs/pe
 | Video file still ends in `-0000.avi` | The rename after recording failed (warning `spincam:recorder:renameFailed`, e.g. the file was open in a player) or `MaxFileSizeMB > 0`. The data are complete; rename by hand. |
 | `spincam:property:clamped` for FrameRate on connect | Manual exposure is too long for the default frame rate and could not be shortened. Lower `ExposureTime` or set `cm.DefaultFrameRate`. |
 | `Spinnaker .NET assemblies (SpinnakerNET_v*.dll) not found` | Install Spinnaker with its .NET components, or point spincam at it: `spincam.setup('SpinnakerDir', '<Spinnaker folder>')` or `spincam.setup('BrowseSpinnaker', true)`. Setup lists configured folders that contain no assemblies. |
-| `spincam:recorder:noSpinVideo` | The Spinnaker installation has no `SpinVideoNET`. Use `raw`, `matlab-avi` or `matlab-mjpeg`, or install Spinnaker's video components and run `spincam.setup`. |
+| `spincam:recorder:noSpinVideo` | The Spinnaker installation has no `SpinVideoNET`. Use `avi-mjpeg-mt` (the default), `raw`, `matlab-avi` or `matlab-mjpeg`, or install Spinnaker's video components and run `spincam.setup`. |
 | Engine build fails after a Spinnaker update | The installed .NET API no longer has a member spincam uses; the compiler message names it. Reinstall the verified version (4.2.0.83) or report the message. |
 | `spincam:roi:adjusted` | The crop was rounded to the camera's steps or moved onto the sensor; the returned `[x y w h]` is what the camera uses. |
 | Unexpected image size / cropped view | A crop from an earlier session is still active (cameras keep it until power-cycled). Click *Full frame* on the Camera tab or run `cm.resetRoi()`. |
 | Frames missed at > 120 fps with two cameras (`FramesMissedBefore` > 0, while Spinnaker's `StreamLostFrameCount` stays 0) | The frames are skipped on the cameras because both share one USB 3.0 controller. Use separate controllers, or ≤ 120 fps / a smaller ROI; see §9. |
-| "Writer did not finish within … ms" with 0 frames written, or MATLAB crashing in `SpinVideo::Open` / `avcodec-57.dll` | SpinVideo's ffmpeg 3.x is not safe when several writers open or close at the same moment. Since 2026-09-15 the engine serializes these calls; make sure `native\bin\SpinCamEngine.dll` is rebuilt (`spincam.setup('ForceBuild',true)` in a fresh MATLAB) and restart MATLAB. |
+| "Writer did not finish within … ms" with 0 frames written, or MATLAB crashing in `SpinVideo::Open` / `avcodec-57.dll` | SpinVideo's ffmpeg 3.x is not safe when several writers open or close at the same moment. The engine serializes these calls; an engine built before 2026-09-15 does not, so rebuild it (`spincam.setup('ForceBuild',true)` in a fresh MATLAB) and restart MATLAB. |
 | `WriterDropFlag` = 1 / writer drops in the summary | The encoder is slower than the camera. Lower the frame rate (≤ 100 fps at full frame), crop (`setRoi`), or use `raw`; see §9. |
 | TTL never changes in CSV / TTL badge stays grey | Run `spincam.tools.verifyTtlInput(10)` while pulsing. Check yellow/brown polarity, that the source drives 5 V (3.3 V logic may not switch the opto-isolated input; §3), and that the pulse is longer than a frame period (≥ 15 ms at 100 fps). |
 | Warning "Unable to obtain a change notification handle" | Harmless. MATLAB started from a `\\wsl.localhost` path; start it from the Windows project folder instead. |

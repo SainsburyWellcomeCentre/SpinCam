@@ -1,5 +1,5 @@
 function [T, corrections] = readFrameLog(csvPath, options)
-%READFRAMELOG Read a <base>_cam<serial>_frames.csv file into a typed table.
+%READFRAMELOG Read a camera's frame log (<camera>_<fileName>_<datetime>.csv) into a table.
 %   CameraID and TTL_Source are strings, HostTimestamp_datetime is a datetime in
 %   the local time zone, all other columns are double.
 %

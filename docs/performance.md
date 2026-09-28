@@ -2,8 +2,10 @@
 
 Measurements behind the recommendations in [README §9](../README.md#9-performance-and-limits).
 
-Measured 2026-09-15 on the development rig: i7-14700K, 64 GB RAM, Samsung 990 PRO NVMe,
-Windows 11, 2 × CM3-U3-13Y3M at 1280×1024 Mono8, 3 ms exposure.
+Measured 2026-09-15 and 16 on the development rig: i7-14700K, 64 GB RAM, Samsung 990 PRO NVMe,
+Windows 11, 2 × CM3-U3-13Y3M at 1280×1024 Mono8, 3 ms exposure unless stated otherwise.
+Camera names follow the defaults of that time (24226887 = sideview, 24226657 = topview); they
+were swapped on 2026-09-25.
 
 ## Acquisition (camera → engine)
 
@@ -68,8 +70,8 @@ frames and 0 writer drops: 100 fps `avi-raw` (10 s) and 120 fps `raw` (15 s).
 
 **Why.** In a LuminoseFM session (Bpod emulator running trials, camera window at 5 Hz, plots) the
 SpinVideo `avi-mjpeg` writer queue at 100 fps full frame peaked at 515 and 673 frames in 4.7 min;
-with the window alone it grew +1.4 and +2.3 frames/s, which fills the 1200-frame queue in
-~10–15 min. With MATLAB idle it stayed flat (peak 3): the single-threaded encoder has only ~4 %
+with the window alone it grew +1.4 and +2.3 frames/s, which fills the default 1000-frame queue
+(10 s at 100 fps) in ~7–12 min. With MATLAB idle it stayed flat (peak 3): the single-threaded encoder has only ~4 %
 headroom at 100 fps.
 
 **Encoder speed** (`JpegEncoder`, synthetic 1280×1024 frame, Q75): one thread 184 fps
@@ -108,7 +110,8 @@ and sequential), and host arrival intervals stayed below 17 ms.
 
 ## 30-minute soak test with the defaults
 
-2026-09-15 (SpinVideo `avi-mjpeg`, the default then); both cameras, 1280×1024, 100 fps, `avi-mjpeg`, passive sync, auto exposure/gain.
+2026-09-15, SpinVideo `avi-mjpeg` (the default then); both cameras, 1280×1024, 100 fps, passive
+sync, auto exposure/gain.
 
 | Camera | Frames logged = written | Missed | Writer drops | Queue peak | Video file | Hardware frame interval |
 |---|---|---|---|---|---|---|

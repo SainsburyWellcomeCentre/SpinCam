@@ -112,8 +112,8 @@ host rather than latched per exposure.
 Spinnaker 4.2.0.83) it sometimes jumps forward by exactly 128 s between two consecutive frames
 and stays offset: FrameID and the embedded counter advance by one, the host clock by one frame
 period. Four such steps were found in LuminoseFM's recordings of 2026-09-26 (both cameras) and
-2026-09-28 (topview, twice), each where the timestamp crossed a multiple of 64 s: the camera's
-seconds counter is 7 bits wide, and its wrap is counted twice. It cannot be reproduced on demand.
+2026-09-28 (topview, twice), each where the timestamp crossed a multiple of 64 s, as if the wrap
+of a 7-bit seconds counter were counted twice (not confirmed). It cannot be reproduced on demand.
 
 `TimestampGuard` (one per `CameraStream`, grab thread) compares each hardware interval with the
 host interval (`HostClock` ticks at arrival). When the hardware interval is longer or shorter by a

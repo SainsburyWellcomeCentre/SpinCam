@@ -2,7 +2,7 @@ classdef VideoRecorder < handle
     %VIDEORECORDER Video and CSV output settings for spincam recordings.
     %   Formats:
     %     'avi-mjpeg-mt' MJPEG AVI (OpenDML) encoded by the engine on EncoderThreads cores per
-    %                    camera; keeps up with full frames at 150 fps and needs no SpinVideo
+    %                    camera; needs no SpinVideo (default)
     %     'avi-mjpeg'    SpinVideo MJPEG AVI, encoded on the engine's writer thread (~104 fps
     %                    per camera at 1280x1024)
     %     'avi-raw'      SpinVideo uncompressed AVI
@@ -16,6 +16,7 @@ classdef VideoRecorder < handle
     %   them while MATLAB is blocked (e.g. Bpod RunStateMachine).
 
     properties
+        %FORMAT Video format; one of VideoRecorder.Formats (see above).
         Format (1,:) char = 'avi-mjpeg-mt'
         %QUALITY MJPEG quality of SpinVideo ('avi-mjpeg') and MATLAB ('matlab-mjpeg') writers.
         Quality (1,1) double {mustBeInteger, mustBeInRange(Quality, 1, 100)} = 75
@@ -23,10 +24,12 @@ classdef VideoRecorder < handle
         %   30 gives SpinVideo Quality 75's file size on the rig's frames and is 5-8 dB closer
         %   to the raw frames (docs/performance.md); the scales are not the same.
         JpegQuality (1,1) double {mustBeInteger, mustBeInRange(JpegQuality, 1, 100)} = 30
+        %H264BITRATEMBPS, H264CRF Encoder settings of 'mp4-h264'.
         H264BitrateMbps (1,1) double {mustBePositive} = 8
         H264Crf (1,1) double {mustBeInteger, mustBeInRange(H264Crf, 0, 51)} = 23
         %FRAMERATE Container frame rate; [] uses the camera's AcquisitionFrameRate.
         FrameRate double {mustBeScalarOrEmpty} = []
+        %MAXFILESIZEMB Segment size of the SpinVideo formats; 0 = one file.
         MaxFileSizeMB (1,1) double {mustBeInteger, mustBeNonnegative} = 0
         %ENCODERTHREADS JPEG encoder threads per camera for 'avi-mjpeg-mt'; 0 = automatic
         %   (logical processors / 4, from 2 to 8).
@@ -36,9 +39,13 @@ classdef VideoRecorder < handle
         AviRiffSizeMB (1,1) double {mustBeInteger, mustBeNonnegative} = 0
         %QUEUESECONDS Writer queue depth in seconds of video (capped by MaxQueueMB).
         QueueSeconds (1,1) double {mustBePositive} = 10
+        %MAXQUEUEMB Upper bound of the writer queue in MB of frames.
         MaxQueueMB (1,1) double {mustBePositive} = 2048
+        %CSVEXTENDED Write all frame-log columns; false writes only the first six.
         CsvExtended (1,1) logical = true
+        %SCRUBEMBEDDEDPIXELS Restore the 8 pixels that carry embedded frame data.
         ScrubEmbeddedPixels (1,1) logical = true
+        %DRAINPERIOD Timer period (s) that drains frames to the matlab-* writers.
         DrainPeriod (1,1) double {mustBePositive} = 0.02
     end
 
@@ -79,6 +86,7 @@ classdef VideoRecorder < handle
         end
 
         function tf = isSpinVideo(obj)
+            %ISSPINVIDEO True for the formats written by Spinnaker's SpinVideo.
             tf = any(strcmp(obj.Format, {'avi-mjpeg', 'avi-raw', 'mp4-h264'}));
         end
 
@@ -107,10 +115,12 @@ classdef VideoRecorder < handle
         end
 
         function tf = isMatlab(obj)
+            %ISMATLAB True for the formats written by MATLAB VideoWriter.
             tf = startsWith(obj.Format, 'matlab-');
         end
 
         function ext = extension(obj)
+            %EXTENSION Video file extension of Format ('' for 'none').
             switch obj.Format
                 case 'none'
                     ext = '';
@@ -169,7 +179,8 @@ classdef VideoRecorder < handle
             p = paths;
             if obj.isSpinVideo() && ~spincam.internal.NativeEngine.hasSpinVideo()
                 error('spincam:recorder:noSpinVideo', ['Format %s needs SpinVideoNET, which was not found in the ' ...
-                    'Spinnaker installation. Use ''raw'', ''matlab-avi'' or ''matlab-mjpeg''.'], obj.Format);
+                    'Spinnaker installation. Use ''avi-mjpeg-mt'' (default), ''raw'', ''matlab-avi'' or ' ...
+                    '''matlab-mjpeg''.'], obj.Format);
             end
             fps = obj.resolveFrameRate(device);
             [width, height] = spincam.VideoRecorder.frameSize(device);
@@ -203,6 +214,7 @@ classdef VideoRecorder < handle
         end
 
         function fps = resolveFrameRate(obj, device)
+            %RESOLVEFRAMERATE Container frame rate: FrameRate, else the camera's, else 30 fps.
             if ~isempty(obj.FrameRate)
                 fps = obj.FrameRate;
                 return
@@ -301,6 +313,7 @@ classdef VideoRecorder < handle
         end
 
         function abort(obj)
+            %ABORT Stop draining and close MATLAB VideoWriters without flushing the queue.
             obj.stopTimer();
             for k = 1:numel(obj.Writers)
                 try
@@ -313,6 +326,7 @@ classdef VideoRecorder < handle
         end
 
         function s = toStruct(obj)
+            %TOSTRUCT Settings saved in _session.json.
             s = struct();
             names = {'Format', 'Quality', 'JpegQuality', 'H264BitrateMbps', 'H264Crf', 'FrameRate', 'MaxFileSizeMB', 'EncoderThreads', ...
                 'QueueSeconds', 'MaxQueueMB', 'CsvExtended', 'ScrubEmbeddedPixels'};

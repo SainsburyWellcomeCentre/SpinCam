@@ -86,14 +86,17 @@ classdef SyncController < handle
         end
 
         function idx = ttlLineIndex(obj)
+            %TTLLINEINDEX TtlLine as a number (Line2 -> 2).
             idx = str2double(obj.TtlLine(end));
         end
 
         function tf = usesTtlInput(obj)
+            %USESTTLINPUT True when TtlLine is read (TTL logging or trigger input).
             tf = ~strcmp(obj.TtlSource, 'none') || strcmp(obj.Mode, 'triggered');
         end
 
         function gate = recordGate(obj)
+            %RECORDGATE 'firstRisingEdge' for TriggerType 'start', otherwise 'none'.
             if strcmp(obj.Mode, 'triggered') && strcmp(obj.TriggerType, 'start')
                 gate = 'firstRisingEdge';
             else
@@ -102,6 +105,7 @@ classdef SyncController < handle
         end
 
         function txt = describe(obj)
+            %DESCRIBE One-line summary of the configuration.
             switch obj.Mode
                 case 'passive'
                     txt = sprintf('A passive: log %s (%s)', obj.TtlLine, obj.TtlSource);

@@ -1,7 +1,8 @@
 function aviPath = rawToAvi(rawPath, aviPath, opts)
 %RAWTOAVI Convert a spincam .raw recording to AVI with MATLAB VideoWriter.
-%   spincam.io.rawToAvi('day1_cam24226887.raw')                       -> day1_cam24226887.avi (Grayscale AVI, lossless)
+%   spincam.io.rawToAvi('topview_mouse01.raw')   writes topview_mouse01.avi (Grayscale AVI, lossless)
 %   spincam.io.rawToAvi(rawPath, aviPath, 'Profile', 'Motion JPEG AVI', 'Quality', 90)
+%   'FrameRate' overrides the sidecar's frame rate; 'ChunkFrames' sets frames read per step.
 %   Frame order and count are preserved, so VideoFrameIndex in the CSV still applies.
 arguments
     rawPath {mustBeTextScalar}

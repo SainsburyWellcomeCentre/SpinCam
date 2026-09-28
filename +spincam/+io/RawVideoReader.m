@@ -1,6 +1,6 @@
 classdef RawVideoReader < handle
     %RAWVIDEOREADER Read lossless spincam .raw recordings (Recorder.Format = 'raw').
-    %   r = spincam.io.RawVideoReader('D:\data\day1_cam24226887.raw');
+    %   r = spincam.io.RawVideoReader('D:\videoData\mouse01\20260915\topview_mouse01_20260915_143012.raw');
     %   img = r.read(1);             first frame, Height-by-Width uint8
     %   clip = r.read([100 199]);    frames 100..199, Height-by-Width-by-100 uint8
     %
@@ -24,6 +24,7 @@ classdef RawVideoReader < handle
 
     methods
         function obj = RawVideoReader(path)
+            %RAWVIDEOREADER Open PATH (.raw) and its <path>.json sidecar.
             arguments
                 path {mustBeTextScalar}
             end

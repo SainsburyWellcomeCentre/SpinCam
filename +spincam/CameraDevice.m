@@ -67,11 +67,15 @@ classdef CameraDevice < handle
 
         % ----------------------------------------------------------------- properties
         function v = get(obj, name)
+            %GET Value of a friendly property or raw GenICam node.
             [node, ~] = obj.resolve(name);
             v = obj.NodeMap.get(node);
         end
 
         function actual = set(obj, name, value)
+            %SET Write a property and return the value read back.
+            %   Switches the related auto mode off and enables its feature node first;
+            %   numeric values outside the limits are clamped (warning spincam:property:clamped).
             [node, def] = obj.resolve(name);
             label = char(name);
             if ~isempty(def)
@@ -114,12 +118,12 @@ classdef CameraDevice < handle
             %DESCRIBEPROPERTIES Table of friendly properties and their current limits.
             defs = spincam.internal.PropertyRegistry.all();
             n = numel(defs);
-            Name = cell(n, 1); Node = cell(n, 1); Value = cell(n, 1); Min = nan(n, 1);
+            Names = cell(n, 1); Node = cell(n, 1); Value = cell(n, 1); Min = nan(n, 1);
             Max = nan(n, 1); Unit = cell(n, 1); Available = false(n, 1); Writable = false(n, 1);
             Auto = cell(n, 1);
             for k = 1:n
                 d = defs(k);
-                Name{k} = d.Name;
+                Names{k} = d.Name;
                 Unit{k} = d.Unit;
                 Auto{k} = '';
                 node = obj.NodeMap.firstExisting(d.Nodes);
@@ -138,7 +142,8 @@ classdef CameraDevice < handle
                     Auto{k} = obj.NodeMap.get(autoNode);
                 end
             end
-            T = table(Name, Node, Value, Min, Max, Unit, Available, Writable, Auto);
+            T = table(Names, Node, Value, Min, Max, Unit, Available, Writable, Auto, 'VariableNames', ...
+                {'Name', 'Node', 'Value', 'Min', 'Max', 'Unit', 'Available', 'Writable', 'Auto'});
         end
 
         function s = getSettings(obj)
@@ -262,10 +267,12 @@ classdef CameraDevice < handle
 
         % ------------------------------------------------------------------ streaming
         function tf = isStreaming(obj)
+            %ISSTREAMING True while the acquisition stream is running.
             tf = ~isempty(obj.Stream) && obj.Stream.IsRunning;
         end
 
         function startStream(obj, previewMaxHz)
+            %STARTSTREAM Start acquisition with the current SyncPlan (PixelFormat must be Mono8).
             arguments
                 obj
                 previewMaxHz (1,1) double {mustBeNonnegative} = 30
@@ -307,6 +314,7 @@ classdef CameraDevice < handle
         end
 
         function stopStream(obj)
+            %STOPSTREAM Stop acquisition (finalizes an active recording).
             if isempty(obj.Stream)
                 return
             end
@@ -317,6 +325,7 @@ classdef CameraDevice < handle
         end
 
         function startRecording(obj, options)
+            %STARTRECORDING Start recording on the running stream (called by CameraManager).
             obj.requireStream();
             try
                 obj.Stream.StartRecording(options);
@@ -327,12 +336,14 @@ classdef CameraDevice < handle
         end
 
         function beginStopRecording(obj)
+            %BEGINSTOPRECORDING Stop accepting frames without waiting (see endStopRecording).
             if ~isempty(obj.Stream)
                 obj.Stream.BeginStopRecording();
             end
         end
 
         function summary = endStopRecording(obj, timeoutSeconds)
+            %ENDSTOPRECORDING Wait for the writer to finish; returns the recording summary.
             summary = struct();
             if ~isempty(obj.Stream)
                 summary = jsondecode(char(obj.Stream.EndStopRecording(int32(round(timeoutSeconds * 1000)))));
@@ -340,6 +351,7 @@ classdef CameraDevice < handle
         end
 
         function s = stats(obj)
+            %STATS Stream statistics struct (frames, drops, fps, queue, last TTL, errors).
             obj.requireStream();
             s = jsondecode(char(obj.Stream.GetStatsJson()));
         end
@@ -495,6 +507,7 @@ classdef CameraDevice < handle
 
     methods (Static)
         function plan = defaultPlan()
+            %DEFAULTPLAN SyncPlan of a camera with no sync settings applied.
             plan = struct('Mode', 'passive', 'TtlLine', 0, 'TtlSource', 'none', ...
                 'FrameCounterOffset', -1, 'GpioOffset', -1, 'Gate', 'none');
         end
